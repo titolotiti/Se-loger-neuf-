@@ -63,6 +63,7 @@ export type ScrapeReport = {
   nextDataDebug?: {
     sampleItemKeys: string[][];
     rejectionSummary: Record<string, number>;
+    programDebugInfos?: ProgramDebugInfo[];
   };
 };
 
@@ -105,6 +106,7 @@ export type NeufListing = {
   reliabilityScore: number;
   excludedFromStats: boolean;
   exclusionReason?: string;
+  isPlaceholderLot?: boolean;
 };
 
 export type NeufProgram = {
@@ -141,6 +143,19 @@ export type GeocodedAddress = {
   lng: number;
   department?: string;
   region?: string;
+};
+
+export type ProgramDebugInfo = {
+  programId: string;
+  programName: string;
+  url: string;
+  rawKeys: string[];
+  rawPreview: string;
+  hasPromoter: boolean;
+  hasDelivery: boolean;
+  hasPrice: boolean;
+  hasSurface: boolean;
+  hasLots: boolean;
 };
 
 export type NeufAnalysisResult = {

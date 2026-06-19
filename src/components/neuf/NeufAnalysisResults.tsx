@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import type { NeufAnalysisResult, NeufProgram, NeufTypology, ScrapeReport, ScrapeDiagnosisType, ProgramDebugInfo } from "@/types/neuf";
+import type { NeufAnalysisResult, NeufProgram, NeufTypology, ScrapeReport, ScrapeDiagnosisType, ProgramDebugInfo, ImportedProgramData } from "@/types/neuf";
+import LotImportModal from "./LotImportModal";
 
 const TYPOLOGIES: NeufTypology[] = ["T1 / Studio", "T2", "T3", "T4", "T5+"];
 
@@ -355,24 +356,47 @@ function Stat({ label, value, red, warn }: { label: string; value: number; red?:
 
 // ─── Composant : ligne de programme ──────────────────────────────────────────
 
-function ProgramRow({ prog }: { prog: NeufProgram }) {
+function ProgramRow({
+  prog,
+  imported,
+  onImport,
+}: {
+  prog: NeufProgram;
+  imported?: ImportedProgramData;
+  onImport: () => void;
+}) {
   const deliveryLabel = prog.deliveryDate ?? prog.commercialStatus ?? "—";
-  const typoLabel = prog.typologies && prog.typologies.length > 0
-    ? prog.typologies.join(", ")
-    : prog.typologyRange ?? "—";
-  const priceLabel = prog.priceFromEur != null
-    ? `${fmt(prog.priceFromEur)} €${prog.isPriceMin ? " *" : ""}`
-    : "—";
-  const lotsLabel = prog.availableUnitsDetected != null
-    ? String(prog.availableUnitsDetected)
-    : prog.availableUnits != null
-    ? String(prog.availableUnits)
-    : "—";
+  const typoLabel =
+    prog.typologies && prog.typologies.length > 0
+      ? prog.typologies.join(", ")
+      : prog.typologyRange ?? "—";
+  const priceLabel =
+    prog.priceFromEur != null
+      ? `${fmt(prog.priceFromEur)} €${prog.isPriceMin ? " *" : ""}`
+      : "—";
+  const lotsLabel =
+    prog.availableUnitsDetected != null
+      ? String(prog.availableUnitsDetected)
+      : prog.availableUnits != null
+      ? String(prog.availableUnits)
+      : "—";
+
+  const importedTotal = imported
+    ? imported.lots.reduce((s, l) => s + l.availableCount, 0)
+    : null;
+  const importedTypologies = imported
+    ? [...new Set(imported.lots.filter((l) => l.typology).map((l) => l.typology))].join(", ")
+    : null;
 
   return (
     <tr className="hover:bg-blue-50 border-b border-gray-100">
       <td className="px-3 py-2 text-sm font-medium text-gray-900">
-        <a href={prog.url} target="_blank" rel="noopener noreferrer" className="text-blue-700 underline">
+        <a
+          href={prog.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-blue-700 underline"
+        >
           {prog.programName}
         </a>
       </td>
@@ -383,11 +407,36 @@ function ProgramRow({ prog }: { prog: NeufProgram }) {
       <td className="px-3 py-2 text-sm text-gray-600">{typoLabel}</td>
       <td className="px-3 py-2 text-sm text-center text-gray-600">{lotsLabel}</td>
       <td className="px-3 py-2 text-sm text-center">
-        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-          prog.zoneType === "Commune principale"
-            ? "bg-blue-100 text-blue-800"
-            : "bg-gray-100 text-gray-600"
-        }`}>
+        {imported ? (
+          <div className="flex flex-col items-center gap-0.5">
+            <span className="text-green-700 text-xs font-semibold">✓ {importedTotal} lots</span>
+            {importedTypologies && (
+              <span className="text-[10px] text-gray-500">{importedTypologies}</span>
+            )}
+            <button
+              onClick={onImport}
+              className="text-[10px] text-blue-600 underline mt-0.5"
+            >
+              Ré-importer
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={onImport}
+            className="text-xs bg-blue-100 hover:bg-blue-200 text-blue-800 px-2.5 py-1 rounded-md transition-colors whitespace-nowrap font-medium"
+          >
+            ↓ Importer lots
+          </button>
+        )}
+      </td>
+      <td className="px-3 py-2 text-sm text-center">
+        <span
+          className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+            prog.zoneType === "Commune principale"
+              ? "bg-blue-100 text-blue-800"
+              : "bg-gray-100 text-gray-600"
+          }`}
+        >
           {prog.zoneType === "Commune principale" ? "Principale" : "Limitrophe"}
         </span>
       </td>
@@ -401,19 +450,53 @@ type Props = {
   result: NeufAnalysisResult;
   onExport: () => void;
   exportLoading: boolean;
+  importedLots: Record<string, ImportedProgramData>;
+  onImportLots: (programId: string, data: ImportedProgramData) => void;
 };
 
-export default function NeufAnalysisResults({ result, onExport, exportLoading }: Props) {
+export default function NeufAnalysisResults({
+  result,
+  onExport,
+  exportLoading,
+  importedLots,
+  onImportLots,
+}: Props) {
   const [showExcluded, setShowExcluded] = useState(false);
+  const [activeProgramId, setActiveProgramId] = useState<string | null>(null);
 
   const allListings = result.listings;
   const included = allListings.filter((l) => !l.excludedFromStats);
   const excluded = allListings.filter((l) => l.excludedFromStats && !l.isPlaceholderLot);
   const placeholderCount = allListings.filter((l) => !!l.isPlaceholderLot).length;
-  const allLotsArePlaceholders = result.programs.length > 0 && placeholderCount === result.programs.length && included.length === 0;
+  const allLotsArePlaceholders =
+    result.programs.length > 0 &&
+    placeholderCount === result.programs.length &&
+    included.length === 0;
 
   const isBlocked =
     result.scrapeReport?.diagnosisType != null && result.programs.length === 0;
+
+  // KPIs from imported data
+  const importedProgramCount = Object.keys(importedLots).length;
+  const totalImportedLots = Object.values(importedLots).reduce(
+    (sum, d) => sum + d.lots.reduce((s, l) => s + l.availableCount, 0),
+    0
+  );
+  const importedPricesM2 = Object.values(importedLots).flatMap((d) =>
+    d.lots.flatMap((l) => {
+      if (!l.surfaceM2 || !l.priceEur) return [];
+      const pm2 = l.pricePerM2 ?? Math.round(l.priceEur / l.surfaceM2);
+      return Array(l.availableCount).fill(pm2);
+    })
+  );
+  const avgPriceM2Imported =
+    importedPricesM2.length > 0
+      ? importedPricesM2.reduce((a, b) => a + b, 0) / importedPricesM2.length
+      : null;
+
+  const activeProgram = activeProgramId
+    ? result.programs.find((p) => p.programId === activeProgramId) ?? null
+    : null;
 
   return (
     <div className="space-y-6">
@@ -477,12 +560,20 @@ export default function NeufAnalysisResults({ result, onExport, exportLoading }:
       {/* KPIs */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <Kpi label="Programmes trouvés" value={result.programs.length} />
-        <Kpi label="Lots analysés" value={included.length} />
-        <Kpi label="Lots exclus" value={excluded.length} />
+        <Kpi
+          label="Programmes avec lots"
+          value={importedProgramCount > 0 ? `${importedProgramCount} importés` : included.length}
+        />
+        <Kpi
+          label="Lots disponibles"
+          value={totalImportedLots > 0 ? totalImportedLots : included.length || "—"}
+        />
         <Kpi
           label="Prix/m² moyen"
           value={
-            included.length > 0
+            avgPriceM2Imported != null
+              ? `${fmt(avgPriceM2Imported)} €/m²`
+              : included.length > 0
               ? `${fmt(
                   included
                     .map((l) => l.pricePerM2)
@@ -494,16 +585,26 @@ export default function NeufAnalysisResults({ result, onExport, exportLoading }:
         />
       </div>
 
+      {/* Modal import */}
+      {activeProgram && (
+        <LotImportModal
+          programName={activeProgram.programName}
+          programUrl={activeProgram.url}
+          onImport={(data) => onImportLots(activeProgram.programId, data)}
+          onClose={() => setActiveProgramId(null)}
+        />
+      )}
+
       {/* Tableau programmes */}
       {result.programs.length > 0 ? (
         <div className="overflow-x-auto">
           <h3 className="text-sm font-semibold text-gray-700 mb-2">
             Programmes ({result.programs.length})
-            {result.programs.some(p => p.isPriceMin) && (
+            {result.programs.some((p) => p.isPriceMin) && (
               <span className="ml-2 text-xs font-normal text-gray-500">* = prix à partir de</span>
             )}
           </h3>
-          <table className="w-full text-sm border-collapse min-w-[900px]">
+          <table className="w-full text-sm border-collapse min-w-[1050px]">
             <thead>
               <tr className="bg-blue-700 text-white">
                 <th className="px-3 py-2 text-left">Programme</th>
@@ -512,13 +613,19 @@ export default function NeufAnalysisResults({ result, onExport, exportLoading }:
                 <th className="px-3 py-2 text-left">Livraison</th>
                 <th className="px-3 py-2 text-right whitespace-nowrap">Prix à partir de</th>
                 <th className="px-3 py-2 text-left">Typologies</th>
-                <th className="px-3 py-2 text-center">Lots</th>
+                <th className="px-3 py-2 text-center">Lots détectés</th>
+                <th className="px-3 py-2 text-center">Détail lots</th>
                 <th className="px-3 py-2 text-center">Zone</th>
               </tr>
             </thead>
             <tbody>
               {result.programs.map((prog) => (
-                <ProgramRow key={prog.programId} prog={prog} />
+                <ProgramRow
+                  key={prog.programId}
+                  prog={prog}
+                  imported={importedLots[prog.programId]}
+                  onImport={() => setActiveProgramId(prog.programId)}
+                />
               ))}
             </tbody>
           </table>

@@ -1,5 +1,5 @@
 import * as cheerio from "cheerio";
-import type { NeufListing, NeufProgram, NeufTypology, ParkingStatus } from "@/types/neuf";
+import type { NeufListing, NeufProgram, NeufTypology, ParkingStatus, ProgramDebugInfo } from "@/types/neuf";
 import { isSeLogerNeufUrl } from "./scraper";
 
 let listingCounter = 0;
@@ -608,6 +608,107 @@ function findListingsInNextData(data: unknown, depth = 0): unknown[] {
   return [];
 }
 
+// ── Extraction profonde : promoteur, livraison, prix, surface, lots ───────────
+
+const DEVELOPER_OBJECT_KEYS = [
+  "professional", "agency", "contact", "advertiser", "promoteur",
+  "brand", "publisher", "operator", "seller",
+];
+const DEVELOPER_NAME_SUBKEYS = [
+  "name", "nom", "companyName", "label", "displayName",
+  "accountName", "brandName", "corporateName",
+];
+
+function extractDeveloper(item: Record<string, unknown>): string | undefined {
+  const direct = getStrNested(item, DEVELOPER_FIELDS);
+  if (direct) return direct;
+  for (const key of DEVELOPER_OBJECT_KEYS) {
+    const obj = item[key];
+    if (obj && typeof obj === "object" && !Array.isArray(obj)) {
+      const name = getStr(obj as Record<string, unknown>, ...DEVELOPER_NAME_SUBKEYS);
+      if (name) return name;
+    }
+  }
+  return undefined;
+}
+
+const DELIVERY_FIELDS_EXT = [
+  "deliveryDate", "livraison", "availabilityDate", "dateLivraison",
+  "delivery", "remiseCles", "actability", "availableAt",
+  "deliveryQuarter", "dateDelivery", "trimester", "quarter",
+  "availability", "dateDisponibilite", "disponibilite", "dateActabilite",
+];
+
+const PRICE_OBJECT_KEYS_EXT = ["price", "prices", "prix", "priceRange", "budget", "tarif", "montant"];
+const PRICE_VALUE_SUBKEYS = ["min", "from", "fromPrice", "minPrice", "value", "amount", "total", "minimum"];
+
+function extractPrice(item: Record<string, unknown>): number | undefined {
+  const direct = getNum(
+    item,
+    "price", "prix", "prixMin", "priceMin", "budgetMin", "fromPrice",
+    "minPrice", "amount", "value", "montant", "prixHt", "priceHt"
+  );
+  if (direct !== undefined) return direct;
+  for (const key of PRICE_OBJECT_KEYS_EXT) {
+    const obj = item[key];
+    if (obj && typeof obj === "object" && !Array.isArray(obj)) {
+      const nested = getNum(obj as Record<string, unknown>, ...PRICE_VALUE_SUBKEYS);
+      if (nested !== undefined) return nested;
+    }
+  }
+  for (const val of Object.values(item)) {
+    if (val && typeof val === "object" && !Array.isArray(val)) {
+      const nested = getNum(
+        val as Record<string, unknown>,
+        "price", "prix", "minPrice", "prixMin", "fromPrice", "amount", "value"
+      );
+      if (nested !== undefined) return nested;
+    }
+  }
+  return undefined;
+}
+
+const SURFACE_OBJECT_KEYS_EXT = ["surface", "surfaces", "area", "areas", "livingArea", "floorArea"];
+const SURFACE_VALUE_SUBKEYS = ["min", "from", "value", "area", "minimum", "minSurface", "minimum"];
+
+function extractSurface(item: Record<string, unknown>): number | undefined {
+  const direct = getNum(
+    item,
+    "surface", "surfaceMin", "minSurface", "surfaceHabitableMin", "area", "m2", "sqm"
+  );
+  if (direct !== undefined) return direct;
+  for (const key of SURFACE_OBJECT_KEYS_EXT) {
+    const obj = item[key];
+    if (obj && typeof obj === "object" && !Array.isArray(obj)) {
+      const nested = getNum(obj as Record<string, unknown>, ...SURFACE_VALUE_SUBKEYS);
+      if (nested !== undefined) return nested;
+    }
+  }
+  return undefined;
+}
+
+const LOTS_ARRAY_FIELDS_EXT = [
+  "lots", "logements", "units", "typologies", "lotsTypes", "lotsTypologies",
+  "properties", "housing", "children", "cards", "items", "availableLots",
+  "classifications", "offerings", "realEstates", "annonces",
+];
+const LOTS_SUB_OBJECT_KEYS = [
+  "programme", "program", "classified", "housing", "ad", "annonce", "realEstate",
+];
+
+function extractLots(item: Record<string, unknown>): unknown[] {
+  const direct = getArr(item, ...LOTS_ARRAY_FIELDS_EXT);
+  if (direct.length > 0) return direct;
+  for (const subKey of LOTS_SUB_OBJECT_KEYS) {
+    const sub = item[subKey];
+    if (sub && typeof sub === "object" && !Array.isArray(sub)) {
+      const found = getArr(sub as Record<string, unknown>, ...LOTS_ARRAY_FIELDS_EXT);
+      if (found.length > 0) return found;
+    }
+  }
+  return [];
+}
+
 type BuildResult = NeufProgram | "duplicate" | { reject: string };
 
 function buildProgramFromSearchItem(
@@ -617,7 +718,8 @@ function buildProgramFromSearchItem(
   postalCode: string,
   zoneType: "Commune principale" | "Commune limitrophe",
   extractedAt: string,
-  seen: Set<string>
+  seen: Set<string>,
+  debugInfos: ProgramDebugInfo[]
 ): BuildResult {
   // ── URL ──
   const rawUrl = getRawUrl(item);
@@ -645,25 +747,23 @@ function buildProgramFromSearchItem(
   }
   const programName = validName ? rawName! : `Programme ${urlInfo.city ?? "inconnu"}`;
 
-  // ── Champs optionnels ──
-  const developer = getStrNested(item, DEVELOPER_FIELDS);
+  // ── Champs optionnels (recherche élargie) ──
+  const developer = extractDeveloper(item);
   const itemCity = getStrNested(item, CITY_FIELDS) ?? urlInfo.city ?? city;
-  const itemPostalCode = getStr(item, "postalCode", "codePostal", "cp", "zipCode", "codepostal") ?? postalCode;
-  const deliveryDate = getStr(
-    item,
-    "deliveryDate", "livraison", "datelivraison", "delivery",
-    "dateLivraison", "livraisonDate", "deliveryQuarter", "dateDelivery"
-  );
+  const itemPostalCode = getStr(item, "postalCode", "codePostal", "cp", "zipCode", "codepostal", "zip") ?? postalCode;
+  const deliveryDate = getStr(item, ...DELIVERY_FIELDS_EXT);
 
   const programId =
     getIdStr(item, "id", "idAnnonce", "classifiedId", "programmeId", "programId") ??
     urlInfo.programId ??
     `prog_${++programCounter}_${Date.now()}`;
 
-  // ── Lots ──
-  const prixMin = getNum(item, "prixMin", "budgetMin", "minPrice", "priceFrom", "prixMinimum", "price", "prix");
-  const surfaceMin = getNum(item, "surfaceMin", "minSurface", "surfaceHabitableMin", "surface");
-  const rawLots = getArr(item, "lots", "logements", "units", "typologies", "lotsTypes", "lotsTypologies");
+  // ── Prix / surface au niveau programme ──
+  const prixMin = extractPrice(item);
+  const surfaceMin = extractSurface(item);
+
+  // ── Lots détaillés ──
+  const rawLots = extractLots(item);
   let listings: NeufListing[] = [];
 
   if (rawLots.length > 0) {
@@ -671,14 +771,14 @@ function buildProgramFromSearchItem(
       if (!rawLot || typeof rawLot !== "object") continue;
       const l = rawLot as Record<string, unknown>;
       const typologyRaw =
-        getStr(l, "typology", "type", "typelogement", "typeName", "label", "libelle") ??
-        String(getNum(l, "pieces", "nbPieces", "rooms") ?? "");
+        getStr(l, "typology", "type", "typelogement", "typeName", "label", "libelle", "roomType") ??
+        String(getNum(l, "pieces", "nbPieces", "rooms", "roomsNumber", "roomCount") ?? "");
       const typology = parseTypology(typologyRaw);
-      const surface = getNum(l, "surface", "surfaceHabitable", "surfaceMin", "minSurface");
-      const price = getNum(l, "price", "prix", "tarif", "prixMin", "minPrice", "priceMin");
+      const surface = extractSurface(l) ?? getNum(l, "surface", "surfaceHabitable", "surfaceMin", "minSurface", "area");
+      const price = extractPrice(l) ?? getNum(l, "price", "prix", "tarif", "prixMin", "minPrice", "priceMin");
       const reliabilityScore = computeReliability({ typology, surfaceM2: surface, priceEur: price, url: fullUrl, city: itemCity });
       listings.push({
-        id: getIdStr(l, "id", "lotId") ?? `lot_${++listingCounter}`,
+        id: getIdStr(l, "id", "lotId", "classifiedId") ?? `lot_${++listingCounter}`,
         programId,
         source: "SeLogerNeuf",
         url: fullUrl,
@@ -700,8 +800,9 @@ function buildProgramFromSearchItem(
     }
   }
 
+  // Synthèse programme si aucun lot détaillé mais prix/surface connus
   if (listings.length === 0 && (prixMin || surfaceMin)) {
-    const typologyRaw = String(getNum(item, "nbPiecesMin", "rooms", "pieces", "nbPieces") ?? "");
+    const typologyRaw = String(getNum(item, "nbPiecesMin", "rooms", "pieces", "nbPieces", "roomsNumber") ?? "");
     const typology = parseTypology(typologyRaw);
     const reliabilityScore = computeReliability({ typology, surfaceM2: surfaceMin, priceEur: prixMin, url: fullUrl, city: itemCity });
     listings = [{
@@ -726,7 +827,7 @@ function buildProgramFromSearchItem(
     }];
   }
 
-  // Placeholder quand aucune donnée de lot disponible dans __NEXT_DATA__
+  // Placeholder : programme détecté mais données lots non exposées dans __NEXT_DATA__
   if (listings.length === 0) {
     listings = [{
       id: `lot_${++listingCounter}`,
@@ -747,8 +848,22 @@ function buildProgramFromSearchItem(
       reliabilityScore: computeReliability({ url: fullUrl, city: itemCity }),
       excludedFromStats: true,
       exclusionReason: "Données lots non disponibles dans __NEXT_DATA__",
+      isPlaceholderLot: true,
     }];
   }
+
+  debugInfos.push({
+    programId,
+    programName,
+    url: fullUrl,
+    rawKeys: Object.keys(item),
+    rawPreview: JSON.stringify(item, null, 2).slice(0, 2000),
+    hasPromoter: !!developer,
+    hasDelivery: !!deliveryDate,
+    hasPrice: prixMin !== undefined,
+    hasSurface: surfaceMin !== undefined,
+    hasLots: rawLots.length > 0,
+  });
 
   return {
     programId,
@@ -772,6 +887,7 @@ export type SearchExtractResult = {
   duplicatesSkipped: number;
   rejectionSummary: Record<string, number>;
   sampleItemKeys: string[][];
+  programDebugInfos: ProgramDebugInfo[];
 };
 
 export function parseSearchResultsPrograms(
@@ -786,7 +902,7 @@ export function parseSearchResultsPrograms(
   const extractedAt = new Date().toISOString();
   const empty: SearchExtractResult = {
     programs: [], rawItemCount: 0, categorySkipped: 0,
-    duplicatesSkipped: 0, rejectionSummary: {}, sampleItemKeys: [],
+    duplicatesSkipped: 0, rejectionSummary: {}, sampleItemKeys: [], programDebugInfos: [],
   };
 
   const raw = $("#__NEXT_DATA__").html();
@@ -817,12 +933,13 @@ export function parseSearchResultsPrograms(
   const programs: NeufProgram[] = [];
   let duplicatesSkipped = 0;
   const rejectionSummary: Record<string, number> = {};
+  const debugInfos: ProgramDebugInfo[] = [];
 
   for (const rawItem of items) {
     if (!rawItem || typeof rawItem !== "object") continue;
     const result = buildProgramFromSearchItem(
       rawItem as Record<string, unknown>,
-      baseUrl, city, postalCode, zoneType, extractedAt, seen
+      baseUrl, city, postalCode, zoneType, extractedAt, seen, debugInfos
     );
     if (result === "duplicate") {
       duplicatesSkipped++;
@@ -842,5 +959,5 @@ export function parseSearchResultsPrograms(
 
   const categorySkipped = rejectionSummary["URL non-programme (catégorie ou filtre)"] ?? 0;
   console.log(`[parser:search] → ${programs.length} programme(s), ${duplicatesSkipped} doublons, rejets: ${JSON.stringify(rejectionSummary)}`);
-  return { programs, rawItemCount: items.length, categorySkipped, duplicatesSkipped, rejectionSummary, sampleItemKeys };
+  return { programs, rawItemCount: items.length, categorySkipped, duplicatesSkipped, rejectionSummary, sampleItemKeys, programDebugInfos: debugInfos };
 }

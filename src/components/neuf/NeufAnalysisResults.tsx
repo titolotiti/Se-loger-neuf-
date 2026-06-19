@@ -354,6 +354,134 @@ function Stat({ label, value, red, warn }: { label: string; value: number; red?:
   );
 }
 
+// ─── Composant : diagnostic import ───────────────────────────────────────────
+
+function ImportDiagnosticPanel({ importedLots }: { importedLots: Record<string, ImportedProgramData> }) {
+  const [expandedProg, setExpandedProg] = useState<string | null>(null);
+  const [expandedBlock, setExpandedBlock] = useState<string | null>(null);
+
+  const entries = Object.entries(importedLots);
+
+  return (
+    <div className="border border-indigo-200 bg-indigo-50 rounded-lg p-4 space-y-3">
+      <p className="text-sm font-semibold text-indigo-800">
+        🔬 Diagnostic import — {entries.length} programme(s) importé(s)
+      </p>
+      {entries.map(([progId, data]) => {
+        const isOpen = expandedProg === progId;
+        const totalLots = data.lots.reduce((s, l) => s + l.availableCount, 0);
+        return (
+          <div key={progId} className="border border-indigo-200 rounded-lg bg-white overflow-hidden">
+            {/* En-tête programme */}
+            <button
+              onClick={() => setExpandedProg(isOpen ? null : progId)}
+              className="w-full text-left px-3 py-2 flex items-center justify-between hover:bg-indigo-50 transition-colors"
+            >
+              <span className="text-sm font-medium text-indigo-900">{data.programName}</span>
+              <span className="flex items-center gap-3">
+                {data.bookmarkletVersion && (
+                  <span className="text-[10px] bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded font-mono">
+                    {data.bookmarkletVersion}
+                  </span>
+                )}
+                <span className="text-xs text-indigo-600">{data.lots.length} typo(s) · {totalLots} lot(s)</span>
+                <span className="text-indigo-400 text-xs">{isOpen ? "▲" : "▼"}</span>
+              </span>
+            </button>
+
+            {isOpen && (
+              <div className="border-t border-indigo-100 p-3 space-y-3">
+                {/* Tableau des lots */}
+                <div className="overflow-x-auto">
+                  <table className="text-xs w-full border-collapse">
+                    <thead>
+                      <tr className="bg-indigo-100 text-indigo-800">
+                        <th className="px-2 py-1 text-left font-medium">Brut</th>
+                        <th className="px-2 py-1 text-left font-medium">Typo</th>
+                        <th className="px-2 py-1 text-right font-medium">Surface</th>
+                        <th className="px-2 py-1 text-right font-medium">Prix</th>
+                        <th className="px-2 py-1 text-right font-medium">Prix/m²</th>
+                        <th className="px-2 py-1 text-center font-medium">Dispo</th>
+                        <th className="px-2 py-1 text-center font-medium">rawBlock</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.lots.map((lot, i) => {
+                        const blockKey = `${progId}-${i}`;
+                        const isBlockOpen = expandedBlock === blockKey;
+                        const debug = lot.debug;
+                        const hasWarn = debug?.parsingWarnings && debug.parsingWarnings.length > 0;
+                        return (
+                          <>
+                            <tr key={i} className={`border-t border-indigo-100 ${lot.typology ? "" : "bg-red-50"}`}>
+                              <td className="px-2 py-1 font-mono text-gray-500">{lot.rawTypology || "—"}</td>
+                              <td className="px-2 py-1 font-semibold">
+                                {lot.typology ?? <span className="text-red-600">Non reconnue</span>}
+                              </td>
+                              <td className="px-2 py-1 text-right">
+                                {lot.surfaceM2 != null ? `${lot.surfaceM2} m²` : <span className="text-red-500">—</span>}
+                              </td>
+                              <td className="px-2 py-1 text-right">
+                                {lot.priceEur != null ? `${lot.priceEur.toLocaleString("fr-FR")} €` : <span className="text-red-500">—</span>}
+                              </td>
+                              <td className="px-2 py-1 text-right">
+                                {lot.pricePerM2 != null ? `${lot.pricePerM2.toLocaleString("fr-FR")} €/m²` : "—"}
+                              </td>
+                              <td className="px-2 py-1 text-center">{lot.availableCount}</td>
+                              <td className="px-2 py-1 text-center">
+                                {debug?.rawBlockText ? (
+                                  <button
+                                    onClick={() => setExpandedBlock(isBlockOpen ? null : blockKey)}
+                                    className="text-[10px] text-blue-600 underline"
+                                  >
+                                    {isBlockOpen ? "▲" : "▼"}
+                                  </button>
+                                ) : "—"}
+                              </td>
+                            </tr>
+                            {hasWarn && (
+                              <tr key={`w-${i}`} className="bg-amber-50">
+                                <td colSpan={7} className="px-2 py-0.5">
+                                  <p className="text-[10px] text-amber-700">
+                                    ⚠ {debug!.parsingWarnings.join(" · ")}
+                                  </p>
+                                </td>
+                              </tr>
+                            )}
+                            {isBlockOpen && debug?.rawBlockText && (
+                              <tr key={`b-${i}`}>
+                                <td colSpan={7} className="p-0">
+                                  <pre className="bg-gray-900 text-green-300 text-[10px] font-mono whitespace-pre-wrap break-all p-3 max-h-48 overflow-y-auto leading-relaxed">
+                                    {debug.rawBlockText}
+                                  </pre>
+                                </td>
+                              </tr>
+                            )}
+                          </>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* bodyTextSample */}
+                {data.bodyTextSample && (
+                  <details className="text-[11px] text-indigo-700">
+                    <summary className="cursor-pointer font-medium">bodyTextSample</summary>
+                    <pre className="mt-2 bg-gray-900 text-green-300 rounded p-2 text-[10px] font-mono whitespace-pre-wrap break-all max-h-40 overflow-y-auto leading-relaxed">
+                      {data.bodyTextSample}
+                    </pre>
+                  </details>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ─── Composant : ligne de programme ──────────────────────────────────────────
 
 function ProgramRow({
@@ -638,6 +766,11 @@ export default function NeufAnalysisResults({
           </p>
         </div>
       ) : null}
+
+      {/* ── Diagnostic import ────────────────────────────────────────────── */}
+      {Object.keys(importedLots).length > 0 && (
+        <ImportDiagnosticPanel importedLots={importedLots} />
+      )}
 
       {/* Lots exclus */}
       {excluded.length > 0 && (

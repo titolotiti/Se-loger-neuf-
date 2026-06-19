@@ -1,13 +1,83 @@
 "use client";
 
 import { useState } from "react";
-import type { NeufAnalysisResult, NeufProgram, NeufTypology, ScrapeReport, ScrapeDiagnosisType } from "@/types/neuf";
+import type { NeufAnalysisResult, NeufProgram, NeufTypology, ScrapeReport, ScrapeDiagnosisType, ProgramDebugInfo } from "@/types/neuf";
 
 const TYPOLOGIES: NeufTypology[] = ["T1 / Studio", "T2", "T3", "T4", "T5+"];
 
 function fmt(n: number | null | undefined, unit = ""): string {
   if (n == null || !isFinite(n)) return "—";
   return `${Math.round(n).toLocaleString("fr-FR")}${unit}`;
+}
+
+// ─── Composant : tableau debug données par programme ─────────────────────────
+
+function ProgramDebugTable({ infos }: { infos: ProgramDebugInfo[] }) {
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const ok = (v: boolean) => v ? <span className="text-green-700 font-bold">✓</span> : <span className="text-red-500">✗</span>;
+
+  return (
+    <div className="mt-3 border border-blue-200 rounded-lg bg-blue-50 p-3">
+      <p className="text-xs font-semibold text-blue-800 mb-2">
+        📋 Données disponibles par programme ({infos.length})
+      </p>
+      <div className="overflow-x-auto">
+        <table className="text-xs w-full border-collapse">
+          <thead>
+            <tr className="bg-blue-100 text-blue-800">
+              <th className="px-2 py-1 text-left font-medium">Programme</th>
+              <th className="px-2 py-1 text-center font-medium">Promoteur</th>
+              <th className="px-2 py-1 text-center font-medium">Livraison</th>
+              <th className="px-2 py-1 text-center font-medium">Prix</th>
+              <th className="px-2 py-1 text-center font-medium">Surface</th>
+              <th className="px-2 py-1 text-center font-medium">Lots</th>
+              <th className="px-2 py-1 text-left font-medium">Clés trouvées</th>
+            </tr>
+          </thead>
+          <tbody>
+            {infos.map((info) => (
+              <>
+                <tr key={info.programId} className="border-t border-blue-200 hover:bg-blue-100">
+                  <td className="px-2 py-1">
+                    <a href={info.url} target="_blank" rel="noopener noreferrer" className="text-blue-700 underline font-medium">
+                      {info.programName}
+                    </a>
+                  </td>
+                  <td className="px-2 py-1 text-center">{ok(info.hasPromoter)}</td>
+                  <td className="px-2 py-1 text-center">{ok(info.hasDelivery)}</td>
+                  <td className="px-2 py-1 text-center">{ok(info.hasPrice)}</td>
+                  <td className="px-2 py-1 text-center">{ok(info.hasSurface)}</td>
+                  <td className="px-2 py-1 text-center">{ok(info.hasLots)}</td>
+                  <td className="px-2 py-1 text-gray-600 font-mono text-[10px] max-w-xs truncate">
+                    {info.rawKeys.join(", ")}
+                  </td>
+                </tr>
+                {expanded === info.programId && (
+                  <tr key={`${info.programId}-detail`} className="bg-white">
+                    <td colSpan={7} className="px-2 py-2">
+                      <pre className="text-[10px] font-mono text-gray-700 whitespace-pre-wrap break-all bg-gray-50 p-2 rounded border border-gray-200 max-h-60 overflow-y-auto">
+                        {info.rawPreview}
+                      </pre>
+                    </td>
+                  </tr>
+                )}
+                <tr key={`${info.programId}-toggle`} className="border-b border-blue-100">
+                  <td colSpan={7} className="px-2 pb-1">
+                    <button
+                      onClick={() => setExpanded(expanded === info.programId ? null : info.programId)}
+                      className="text-[10px] text-blue-600 underline"
+                    >
+                      {expanded === info.programId ? "Masquer" : "Voir"} JSON brut
+                    </button>
+                  </td>
+                </tr>
+              </>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
 }
 
 // ─── Composant : rapport de scraping ─────────────────────────────────────────
@@ -93,6 +163,11 @@ function ScrapeReportPanel({ report, defaultExpanded = false }: { report: Scrape
         {report.networkErrors > 0 && <Stat label="Erreurs réseau" value={report.networkErrors} warn />}
         {report.successfulPages > 0 && <Stat label="Pages OK" value={report.successfulPages} />}
       </div>
+
+      {/* Données disponibles par programme */}
+      {report.nextDataDebug?.programDebugInfos && report.nextDataDebug.programDebugInfos.length > 0 && (
+        <ProgramDebugTable infos={report.nextDataDebug.programDebugInfos} />
+      )}
 
       {/* Debug __NEXT_DATA__ — affiché quand items trouvés mais 0 programmes */}
       {report.nextDataDebug && report.totalLinksFound > 0 && (report.programLinksRetained ?? 0) === 0 && (
@@ -263,7 +338,9 @@ export default function NeufAnalysisResults({ result, onExport, exportLoading }:
 
   const allListings = result.listings;
   const included = allListings.filter((l) => !l.excludedFromStats);
-  const excluded = allListings.filter((l) => l.excludedFromStats);
+  const excluded = allListings.filter((l) => l.excludedFromStats && !l.isPlaceholderLot);
+  const placeholderCount = allListings.filter((l) => !!l.isPlaceholderLot).length;
+  const allLotsArePlaceholders = result.programs.length > 0 && placeholderCount === result.programs.length && included.length === 0;
 
   const isBlocked =
     result.scrapeReport?.diagnosisType != null && result.programs.length === 0;
@@ -311,6 +388,16 @@ export default function NeufAnalysisResults({ result, onExport, exportLoading }:
             .map((w, i) => (
               <p key={i} className="text-xs text-gray-600">{w}</p>
             ))}
+        </div>
+      )}
+
+      {/* Bannière : programmes trouvés mais aucun prix/surface */}
+      {allLotsArePlaceholders && (
+        <div className="bg-orange-50 border border-orange-300 rounded-lg p-4 text-sm text-orange-800">
+          <strong>⚠️ Données lots non disponibles</strong> — SeLoger Neuf expose les programmes sur la page de résultats
+          mais pas les prix ni surfaces. Les pages détail programme contenant ces données renvoient{" "}
+          <strong>HTTP 403</strong> depuis Vercel et ne peuvent pas être consultées.
+          Les programmes sont listés ci-dessous à titre de référence.
         </div>
       )}
 

@@ -9,7 +9,7 @@
  *   4. Copier le JSON et le coller dans l'outil (bouton "Importer les lots")
  */
 
-const BOOKMARKLET_VERSION = "v3-fixed-parsing";
+const BOOKMARKLET_VERSION = "v3.1-fixed-order-parsing";
 
 (async function extractSeLogerNeufLots() {
   'use strict';
@@ -102,93 +102,6 @@ const BOOKMARKLET_VERSION = "v3-fixed-parsing";
       if (eIdx > 300) { section = section.slice(0, eIdx); break; }
     }
     return { section, startIdx };
-  }
-
-  // ── Stratégie 1 : __NEXT_DATA__ ───────────────────────────────────────────
-  // Utilisée seulement si les lots ont des données surface ET prix (pas juste des noms)
-  const nextEl = document.getElementById('__NEXT_DATA__');
-  if (nextEl) {
-    try {
-      const nd        = JSON.parse(nextEl.textContent || '{}');
-      const ndResult  = extractFromNextData(nd);
-      const hasReal   = ndResult.lots.some(l => l.surfaceM2 && l.priceEur);
-      if (hasReal) {
-        result.lots = ndResult.lots;
-        if (ndResult.programName && !/^detail$/i.test(ndResult.programName)) {
-          result.programName = ndResult.programName;
-        }
-        if (ndResult.totalUnits) result.totalUnits = ndResult.totalUnits;
-        console.log('[SLN] ✓ __NEXT_DATA__ avec surface+prix —', result.lots.length, 'lot(s)');
-      } else {
-        console.log('[SLN] __NEXT_DATA__ sans surface/prix — stratégie DOM');
-      }
-    } catch(e) {
-      console.warn('[SLN] __NEXT_DATA__ erreur :', e.message);
-    }
-  }
-
-  // ── Stratégie 2 : DOM / innerText ─────────────────────────────────────────
-  if (result.lots.length === 0) {
-    // bodyTextSample depuis le texte AVANT expansion (pour diagnostic)
-    const { section: sec0, startIdx: si0 } = extractSection(bt);
-    result.bodyTextSample = si0 >= 0
-      ? bt.slice(Math.max(0, si0 - 30), si0 + 1500)
-      : bt.slice(0, 1500);
-
-    console.log('[SLN] Expansion accordéons...');
-    const nbClicked = await expandAccordions();
-    console.log('[SLN]', nbClicked, 'clics — attente 2 s...');
-    await delay(2000);
-
-    // Re-lire le texte APRÈS expansion
-    const bt2 = normalizeText(document.body.innerText || '');
-    const { section: sec2, startIdx: si2 } = extractSection(bt2);
-
-    // Mettre à jour le bodyTextSample avec le texte après expansion
-    result.bodyTextSample = si2 >= 0
-      ? bt2.slice(Math.max(0, si2 - 30), si2 + 1500)
-      : bt2.slice(0, 1500);
-
-    const domResult = extractFromSection(sec2);
-    result.rawTypologyBlocks = domResult.rawTypologyBlocks;
-    result.lots              = domResult.lots;
-    if (!result.totalUnits && domResult.totalUnits) result.totalUnits = domResult.totalUnits;
-
-    if (result.lots.length > 0) {
-      console.log('[SLN] ✓ DOM —', result.lots.length, 'lot(s)');
-    } else {
-      console.warn('[SLN] ✗ DOM — aucun lot. Voir bodyTextSample dans le JSON.');
-    }
-  } else {
-    // Stratégie 1 réussie — capturer bodyTextSample quand même
-    const { section: sec0, startIdx: si0 } = extractSection(bt);
-    result.bodyTextSample = si0 >= 0
-      ? bt.slice(Math.max(0, si0 - 30), si0 + 1500)
-      : bt.slice(0, 1500);
-  }
-
-  if (!result.availableUnits) {
-    result.availableUnits = result.lots.reduce((s, l) => s + (l.availableCount || 0), 0);
-  }
-
-  const json = JSON.stringify(result, null, 2);
-  console.log('[SLN] Résultat :', result);
-
-  // ── Alerte + presse-papiers ────────────────────────────────────────────────
-  const lotCount = result.lots.length;
-  const alertMsg =
-    (lotCount > 0 ? '✅' : '⚠️') + ' [' + BOOKMARKLET_VERSION + '] ' +
-    lotCount + ' lot(s) — « ' + result.programName + ' »\n\n' +
-    (lotCount > 0
-      ? 'JSON copié dans le presse-papiers.\nCollez dans l\'outil → "Importer les lots".'
-      : 'Aucun lot détecté. Collez le JSON — le diagnostic est inclus.');
-
-  try {
-    await navigator.clipboard.writeText(json);
-    alert(alertMsg);
-  } catch {
-    showTextarea(json);
-    alert(alertMsg);
   }
 
   // ════════════════════════════════════════════════════════════════
@@ -403,6 +316,94 @@ const BOOKMARKLET_VERSION = "v3-fixed-parsing";
     if (!ppm2 && price && surface) ppm2 = Math.round(price / surface);
     const count   = parseNum(get('count','available','availableCount','nbBiens','quantity','disponible','nb')) || 1;
     return { typology: typo, rawTypology: rawTypo || typo || '', surfaceM2: surface, priceEur: price, pricePerM2: ppm2, availableCount: Math.round(count) };
+  }
+
+
+  // ── Stratégie 1 : __NEXT_DATA__ ───────────────────────────────────────────
+  // Utilisée seulement si les lots ont des données surface ET prix (pas juste des noms)
+  const nextEl = document.getElementById('__NEXT_DATA__');
+  if (nextEl) {
+    try {
+      const nd        = JSON.parse(nextEl.textContent || '{}');
+      const ndResult  = extractFromNextData(nd);
+      const hasReal   = ndResult.lots.some(l => l.surfaceM2 && l.priceEur);
+      if (hasReal) {
+        result.lots = ndResult.lots;
+        if (ndResult.programName && !/^detail$/i.test(ndResult.programName)) {
+          result.programName = ndResult.programName;
+        }
+        if (ndResult.totalUnits) result.totalUnits = ndResult.totalUnits;
+        console.log('[SLN] ✓ __NEXT_DATA__ avec surface+prix —', result.lots.length, 'lot(s)');
+      } else {
+        console.log('[SLN] __NEXT_DATA__ sans surface/prix — stratégie DOM');
+      }
+    } catch(e) {
+      console.warn('[SLN] __NEXT_DATA__ erreur :', e.message);
+    }
+  }
+
+  // ── Stratégie 2 : DOM / innerText ─────────────────────────────────────────
+  if (result.lots.length === 0) {
+    // bodyTextSample depuis le texte AVANT expansion (pour diagnostic)
+    const { section: sec0, startIdx: si0 } = extractSection(bt);
+    result.bodyTextSample = si0 >= 0
+      ? bt.slice(Math.max(0, si0 - 30), si0 + 1500)
+      : bt.slice(0, 1500);
+
+    console.log('[SLN] Expansion accordéons...');
+    const nbClicked = await expandAccordions();
+    console.log('[SLN]', nbClicked, 'clics — attente 2 s...');
+    await delay(2000);
+
+    // Re-lire le texte APRÈS expansion
+    const bt2 = normalizeText(document.body.innerText || '');
+    const { section: sec2, startIdx: si2 } = extractSection(bt2);
+
+    // Mettre à jour le bodyTextSample avec le texte après expansion
+    result.bodyTextSample = si2 >= 0
+      ? bt2.slice(Math.max(0, si2 - 30), si2 + 1500)
+      : bt2.slice(0, 1500);
+
+    const domResult = extractFromSection(sec2);
+    result.rawTypologyBlocks = domResult.rawTypologyBlocks;
+    result.lots              = domResult.lots;
+    if (!result.totalUnits && domResult.totalUnits) result.totalUnits = domResult.totalUnits;
+
+    if (result.lots.length > 0) {
+      console.log('[SLN] ✓ DOM —', result.lots.length, 'lot(s)');
+    } else {
+      console.warn('[SLN] ✗ DOM — aucun lot. Voir bodyTextSample dans le JSON.');
+    }
+  } else {
+    // Stratégie 1 réussie — capturer bodyTextSample quand même
+    const { section: sec0, startIdx: si0 } = extractSection(bt);
+    result.bodyTextSample = si0 >= 0
+      ? bt.slice(Math.max(0, si0 - 30), si0 + 1500)
+      : bt.slice(0, 1500);
+  }
+
+  if (!result.availableUnits) {
+    result.availableUnits = result.lots.reduce((s, l) => s + (l.availableCount || 0), 0);
+  }
+
+  const json = JSON.stringify(result, null, 2);
+  console.log('[SLN] Résultat :', result);
+
+  // ── Alerte + presse-papiers ────────────────────────────────────────────────
+  const lotCount = result.lots.length;
+  const alertMsg =
+    (lotCount > 0 ? '✅' : '⚠️') + ' [' + BOOKMARKLET_VERSION + '] ' +
+    lotCount + ' lot(s) — « ' + result.programName + ' »\n\n' +
+    (lotCount > 0
+      ? 'JSON copié dans le presse-papiers.\nCollez dans l\'outil → "Importer les lots".'
+      : 'Aucun lot détecté. Collez le JSON — le diagnostic est inclus.');
+
+  try {
+    await navigator.clipboard.writeText(json);
+    alert(alertMsg);
+  } catch {
+    showTextarea(json);
+    alert(alertMsg);
   }
 
   // ════════════════════════════════════════════════════════════════

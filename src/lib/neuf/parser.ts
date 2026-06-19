@@ -589,7 +589,37 @@ function looksLikeProgramArray(arr: unknown[]): boolean {
   });
 }
 
+// Navigate the known SeLoger Neuf Redux state path:
+// data.props.initialReduxState.searchPrograms.[dynamicKey].programs
+function findProgramsInInitialReduxState(data: unknown): { items: unknown[]; path: string } | null {
+  if (!data || typeof data !== "object") return null;
+  const root = data as Record<string, unknown>;
+  const props = root.props as Record<string, unknown> | undefined;
+  if (!props) return null;
+  const irs = props.initialReduxState as Record<string, unknown> | undefined;
+  if (!irs) return null;
+  const sp = irs.searchPrograms as Record<string, unknown> | undefined;
+  if (!sp || typeof sp !== "object") return null;
+  for (const [key, val] of Object.entries(sp)) {
+    if (!val || typeof val !== "object") continue;
+    const programs = (val as Record<string, unknown>).programs;
+    if (Array.isArray(programs) && programs.length > 0) {
+      console.log(`[parser:search] Chemin Redux trouvé: searchPrograms.${key}.programs (${programs.length} programmes)`);
+      return {
+        items: programs,
+        path: `root.props.initialReduxState.searchPrograms.${key}.programs`,
+      };
+    }
+  }
+  return null;
+}
+
 function findListingsInNextData(data: unknown, depth = 0): unknown[] {
+  // Try the known Redux state path first
+  if (depth === 0) {
+    const specific = findProgramsInInitialReduxState(data);
+    if (specific) return specific.items;
+  }
   if (depth > 8 || !data || typeof data !== "object") return [];
   const obj = data as Record<string, unknown>;
   for (const key of SEARCH_LISTING_ARRAY_KEYS) {
@@ -709,6 +739,54 @@ function extractLots(item: Record<string, unknown>): unknown[] {
   return [];
 }
 
+// ── Livraison depuis stamp + description ──────────────────────────────────────
+
+function extractDeliveryFromProgram(item: Record<string, unknown>): string | undefined {
+  const stamp = getStr(item, "stamp");
+  if (stamp) {
+    if (/livraison\s+imm[eé]diate/i.test(stamp)) return "Livraison immédiate";
+    const m = stamp.match(/[Ll]ivraison\s*(?:prévisionnelle)?\s*[:\-]?\s*(.{3,60})/);
+    if (m) return m[1].trim();
+    if (/livraison/i.test(stamp)) return stamp.trim();
+  }
+  const description = getStr(item, "description");
+  if (description) {
+    const m = description.match(/[Ll]ivraison\s*(?:prévisionnelle)?\s*[:\-]?\s*([^\n\r.]{3,60})/);
+    if (m) return m[1].trim();
+  }
+  return getStr(item, ...DELIVERY_FIELDS_EXT);
+}
+
+// ── Typologies depuis propertiesAvailability ──────────────────────────────────
+// "Du studio au 5 pièces" → [T1/Studio, T2, T3, T4, T5+]
+// "Du 3 pièces au 5 pièces" → [T3, T4, T5+]
+// "Appartement 4 pièces" → [T4]
+
+function roomsToTypology(rooms: number): NeufTypology {
+  if (rooms <= 1) return "T1 / Studio";
+  if (rooms === 2) return "T2";
+  if (rooms === 3) return "T3";
+  if (rooms === 4) return "T4";
+  return "T5+";
+}
+
+function extractTypologiesFromRange(propertiesAvailability: string | undefined): NeufTypology[] {
+  if (!propertiesAvailability) return [];
+  const s = propertiesAvailability.toLowerCase();
+  let minRooms = 99;
+  let maxRooms = 0;
+  if (/studio/i.test(s)) { minRooms = 1; maxRooms = Math.max(maxRooms, 1); }
+  for (const m of s.matchAll(/(\d+)\s*pi[eè]ces?/g)) {
+    const n = parseInt(m[1]);
+    if (n > 0) { minRooms = Math.min(minRooms, n); maxRooms = Math.max(maxRooms, n); }
+  }
+  if (maxRooms === 0) return [];
+  if (minRooms === 99) minRooms = maxRooms;
+  const seen = new Set<NeufTypology>();
+  for (let r = minRooms; r <= maxRooms; r++) seen.add(roomsToTypology(r));
+  return [...seen];
+}
+
 type BuildResult = NeufProgram | "duplicate" | { reject: string };
 
 function buildProgramFromSearchItem(
@@ -721,8 +799,8 @@ function buildProgramFromSearchItem(
   seen: Set<string>,
   debugInfos: ProgramDebugInfo[]
 ): BuildResult {
-  // ── URL ──
-  const rawUrl = getRawUrl(item);
+  // ── URL — programUrl est le champ direct dans les résultats SeLoger Neuf ──
+  const rawUrl = getStr(item, "programUrl") ?? getRawUrl(item);
   if (!rawUrl) return { reject: "URL manquante" };
 
   let fullUrl: string;
@@ -739,30 +817,50 @@ function buildProgramFromSearchItem(
 
   const urlInfo = extractCityFromProgramUrl(fullUrl);
 
-  // ── Nom ──
-  const rawName = getStrNested(item, NAME_FIELDS);
+  // ── Nom — "name" est le champ direct dans les résultats SeLoger Neuf ──
+  const rawName = getStr(item, "name") ?? getStrNested(item, NAME_FIELDS);
   const validName = rawName && isValidProgramName(rawName);
   if (!validName && !urlInfo.city) {
     return { reject: `Nom absent ou générique: "${rawName ?? "(vide)"}"` };
   }
   const programName = validName ? rawName! : `Programme ${urlInfo.city ?? "inconnu"}`;
 
-  // ── Champs optionnels (recherche élargie) ──
-  const developer = extractDeveloper(item);
-  const itemCity = getStrNested(item, CITY_FIELDS) ?? urlInfo.city ?? city;
-  const itemPostalCode = getStr(item, "postalCode", "codePostal", "cp", "zipCode", "codepostal", "zip") ?? postalCode;
-  const deliveryDate = getStr(item, ...DELIVERY_FIELDS_EXT);
-
+  // ── ID programme ──
   const programId =
-    getIdStr(item, "id", "idAnnonce", "classifiedId", "programmeId", "programId") ??
+    getIdStr(item, "programId", "id", "idAnnonce", "classifiedId", "programmeId") ??
     urlInfo.programId ??
     `prog_${++programCounter}_${Date.now()}`;
 
-  // ── Prix / surface au niveau programme ──
-  const prixMin = extractPrice(item);
-  const surfaceMin = extractSurface(item);
+  // ── Promoteur — "professionalName" est le champ direct SeLoger Neuf ──
+  const developer = getStr(item, "professionalName") ?? extractDeveloper(item);
 
-  // ── Lots détaillés ──
+  // ── Localisation ──
+  const itemCity = getStr(item, "cityName") ?? getStrNested(item, CITY_FIELDS) ?? urlInfo.city ?? city;
+  const itemPostalCode = getStr(item, "zipCode", "postalCode", "codePostal", "cp", "codepostal", "zip") ?? postalCode;
+  const inseeCode = getStr(item, "inseeCode");
+
+  // ── Prix à partir de — "price" + "isPriceMin" dans les résultats SeLoger Neuf ──
+  const priceFromEur = getNum(item, "price") ?? extractPrice(item);
+  const isPriceMin = Boolean(item.isPriceMin);
+
+  // ── Typologies — depuis "propertiesAvailability" ──
+  const typologyRange = getStr(item, "propertiesAvailability");
+  const typologies = extractTypologiesFromRange(typologyRange);
+
+  // ── Livraison — depuis "stamp" puis "description" ──
+  const commercialStatus = getStr(item, "stamp");
+  const deliveryDate = extractDeliveryFromProgram(item);
+
+  // ── Description ──
+  const description = getStr(item, "description");
+
+  // ── Lots matchant la recherche ──
+  const lotsMatchingSearch = item.lotsMatchingSearch;
+  const availableUnitsDetected = Array.isArray(lotsMatchingSearch)
+    ? lotsMatchingSearch.length
+    : typeof lotsMatchingSearch === "number" ? lotsMatchingSearch : undefined;
+
+  // ── Lots détaillés (vides dans les pages de résultats SeLoger Neuf) ──
   const rawLots = extractLots(item);
   let listings: NeufListing[] = [];
 
@@ -774,8 +872,8 @@ function buildProgramFromSearchItem(
         getStr(l, "typology", "type", "typelogement", "typeName", "label", "libelle", "roomType") ??
         String(getNum(l, "pieces", "nbPieces", "rooms", "roomsNumber", "roomCount") ?? "");
       const typology = parseTypology(typologyRaw);
-      const surface = extractSurface(l) ?? getNum(l, "surface", "surfaceHabitable", "surfaceMin", "minSurface", "area");
-      const price = extractPrice(l) ?? getNum(l, "price", "prix", "tarif", "prixMin", "minPrice", "priceMin");
+      const surface = extractSurface(l);
+      const price = extractPrice(l);
       const reliabilityScore = computeReliability({ typology, surfaceM2: surface, priceEur: price, url: fullUrl, city: itemCity });
       listings.push({
         id: getIdStr(l, "id", "lotId", "classifiedId") ?? `lot_${++listingCounter}`,
@@ -800,35 +898,12 @@ function buildProgramFromSearchItem(
     }
   }
 
-  // Synthèse programme si aucun lot détaillé mais prix/surface connus
-  if (listings.length === 0 && (prixMin || surfaceMin)) {
-    const typologyRaw = String(getNum(item, "nbPiecesMin", "rooms", "pieces", "nbPieces", "roomsNumber") ?? "");
-    const typology = parseTypology(typologyRaw);
-    const reliabilityScore = computeReliability({ typology, surfaceM2: surfaceMin, priceEur: prixMin, url: fullUrl, city: itemCity });
-    listings = [{
-      id: `lot_${++listingCounter}`,
-      programId,
-      source: "SeLogerNeuf",
-      url: fullUrl,
-      extractedAt,
-      programName,
-      developer,
-      city: itemCity,
-      postalCode: itemPostalCode,
-      geoPrecision: "city_only",
-      typology,
-      surfaceM2: surfaceMin,
-      priceEur: prixMin,
-      parking: "Non communiqué",
-      deliveryDate,
-      reliabilityScore,
-      excludedFromStats: reliabilityScore < 60 || !prixMin || !surfaceMin,
-      exclusionReason: buildExclusionReason({ typology, surfaceM2: surfaceMin, priceEur: prixMin, reliabilityScore }),
-    }];
-  }
-
-  // Placeholder : programme détecté mais données lots non exposées dans __NEXT_DATA__
+  // Programme sans lots détaillés : une ligne par programme avec prix à partir de.
+  // Surface absente → prix/m² non calculable → exclu des stats mais ne compte pas
+  // comme "lot exclu" dans l'interface (isPlaceholderLot: true).
   if (listings.length === 0) {
+    const hasKeyData = !!(programName && fullUrl && developer && priceFromEur);
+    const singleTypo = typologies.length === 1 ? typologies[0] : undefined;
     listings = [{
       id: `lot_${++listingCounter}`,
       programId,
@@ -840,14 +915,14 @@ function buildProgramFromSearchItem(
       city: itemCity,
       postalCode: itemPostalCode,
       geoPrecision: "city_only",
-      typology: undefined,
+      typology: singleTypo,
       surfaceM2: undefined,
-      priceEur: undefined,
+      priceEur: priceFromEur,
       parking: "Non communiqué",
       deliveryDate,
-      reliabilityScore: computeReliability({ url: fullUrl, city: itemCity }),
+      reliabilityScore: hasKeyData ? 70 : 40,
       excludedFromStats: true,
-      exclusionReason: "Données lots non disponibles dans __NEXT_DATA__",
+      exclusionReason: "Surface non disponible dans __NEXT_DATA__ — prix/m² non calculable",
       isPlaceholderLot: true,
     }];
   }
@@ -860,8 +935,8 @@ function buildProgramFromSearchItem(
     rawPreview: JSON.stringify(item, null, 2).slice(0, 2000),
     hasPromoter: !!developer,
     hasDelivery: !!deliveryDate,
-    hasPrice: prixMin !== undefined,
-    hasSurface: surfaceMin !== undefined,
+    hasPrice: priceFromEur !== undefined,
+    hasSurface: false,
     hasLots: rawLots.length > 0,
   });
 
@@ -872,10 +947,18 @@ function buildProgramFromSearchItem(
     developer,
     city: itemCity,
     postalCode: itemPostalCode,
+    inseeCode,
     zoneType,
     url: fullUrl,
     deliveryDate,
+    commercialStatus,
     parking: "Non communiqué",
+    priceFromEur,
+    isPriceMin,
+    typologyRange,
+    typologies,
+    availableUnitsDetected,
+    description,
     listings,
   };
 }
@@ -969,6 +1052,11 @@ export function findListingsWithPaths(
   path = "root",
   depth = 0
 ): { items: unknown[]; path: string } | null {
+  // Try the specific SeLoger Neuf Redux path first
+  if (depth === 0) {
+    const specific = findProgramsInInitialReduxState(data);
+    if (specific) return specific;
+  }
   if (depth > 8 || !data || typeof data !== "object") return null;
   const obj = data as Record<string, unknown>;
   for (const key of SEARCH_LISTING_ARRAY_KEYS) {

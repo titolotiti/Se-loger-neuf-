@@ -107,6 +107,25 @@ export type NeufListing = {
   excludedFromStats: boolean;
   exclusionReason?: string;
   isPlaceholderLot?: boolean;
+  availableCount?: number;
+};
+
+export type ImportedLot = {
+  typology: NeufTypology | null;
+  rawTypology: string;
+  surfaceM2?: number | null;
+  priceEur?: number | null;
+  pricePerM2?: number | null;
+  availableCount: number;
+};
+
+export type ImportedProgramData = {
+  programName: string;
+  sourceUrl: string;
+  totalUnits?: number | null;
+  availableUnits?: number | null;
+  lots: ImportedLot[];
+  importedAt: string;
 };
 
 export type NeufProgram = {

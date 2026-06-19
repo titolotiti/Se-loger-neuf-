@@ -134,31 +134,23 @@ function buildAdresseSheet(wb: ExcelJS.Workbook, result: NeufAnalysisResult) {
 }
 
 // ─── ONGLET DATA ──────────────────────────────────────────────────────────────
+// Une ligne par programme (surfaces et prix/lot non disponibles dans __NEXT_DATA__)
 const DATA_COLS = [
-  "ID Programme",        // A  1
-  "Nom du programme",    // B  2
-  "Promoteur",           // C  3
-  "Adresse",             // D  4
-  "Commune",             // E  5
-  "Code postal",         // F  6
-  "URL source",          // G  7
-  "Total logements",     // H  8
-  "Logements dispo.",    // I  9
-  "Date de livraison",   // J  10
-  "Parking",             // K  11
-  "Typologie",           // L  12
-  "Pièces",              // M  13
-  "Chambres",            // N  14
-  "Surface (m²)",        // O  15
-  "Prix (€)",            // P  16
-  "Prix/m²",             // Q  17
-  "Étage",               // R  18
-  "Extérieur",           // S  19
-  "Statut spécial",      // T  20
-  "Score fiabilité",     // U  21
-  "Exclu des stats ?",   // V  22
-  "Raison exclusion",    // W  23
-  "Date extraction",     // X  24
+  "ID Programme",                    // A  1
+  "Nom du programme",                // B  2
+  "Promoteur",                       // C  3
+  "Commune",                         // D  4
+  "Code postal",                     // E  5
+  "URL source SeLoger Neuf",         // F  6
+  "Prix à partir de (€)",            // G  7
+  "Est prix minimum ?",              // H  8
+  "Typologies disponibles",          // I  9
+  "Livraison / Statut",              // J  10
+  "Lots matchant la recherche",      // K  11
+  "Description",                     // L  12
+  "Données lots détaillées dispo.",  // M  13
+  "Raison absence données détail",   // N  14
+  "Date extraction",                 // O  15
 ];
 
 function buildDataSheet(wb: ExcelJS.Workbook, result: NeufAnalysisResult) {
@@ -167,7 +159,7 @@ function buildDataSheet(wb: ExcelJS.Workbook, result: NeufAnalysisResult) {
   // Titre
   ws.mergeCells(`A1:${colLetter(DATA_COLS.length)}1`);
   const t = ws.getCell("A1");
-  t.value = `Données brutes — ${result.geocodedAddress.label}`;
+  t.value = `Données programmes — ${result.geocodedAddress.label}`;
   t.fill = darkFill(COLOR_HEADER_DARK);
   t.font = { bold: true, size: 13, color: { argb: `FF${COLOR_WHITE}` } };
   t.alignment = { vertical: "middle", horizontal: "center" };
@@ -176,10 +168,13 @@ function buildDataSheet(wb: ExcelJS.Workbook, result: NeufAnalysisResult) {
   // Avertissement
   ws.mergeCells(`A2:${colLetter(DATA_COLS.length)}2`);
   const w = ws.getCell("A2");
-  w.value = "⚠️ Prix de commercialisation affichés — SeLoger Neuf — non vérifiés";
+  w.value =
+    "⚠️ Prix de commercialisation affichés — SeLoger Neuf — non vérifiés. " +
+    "Surfaces et prix par lot non disponibles dans __NEXT_DATA__ (pages détail bloquées HTTP 403).";
   w.fill = darkFill("FFF2CC");
   w.font = { italic: true, size: 10, color: { argb: "FFCC7700" } };
-  w.alignment = { vertical: "middle", horizontal: "center" };
+  w.alignment = { vertical: "middle", horizontal: "center", wrapText: true };
+  ws.getRow(2).height = 28;
 
   // En-têtes
   const hRow = ws.getRow(3);
@@ -188,68 +183,48 @@ function buildDataSheet(wb: ExcelJS.Workbook, result: NeufAnalysisResult) {
     cell.value = h;
     applyHeaderStyle(cell, COLOR_HEADER_BLUE);
   });
-  hRow.height = 30;
+  hRow.height = 40;
 
-  // Données
+  // Données — une ligne par programme
   let rowIdx = 4;
   for (const prog of result.programs) {
-    for (const lot of prog.listings) {
-      const row = ws.getRow(rowIdx);
+    const row = ws.getRow(rowIdx);
+    const extractedAt = prog.listings[0]?.extractedAt ?? new Date().toISOString();
 
-      row.getCell(1).value = prog.programId;
-      row.getCell(2).value = prog.programName;
-      row.getCell(3).value = prog.developer ?? "Non communiqué";
-      row.getCell(4).value = prog.address ?? "Non communiqué";
-      row.getCell(5).value = prog.city;
-      row.getCell(6).value = prog.postalCode ?? "";
-      const urlCell = row.getCell(7);
-      urlCell.value = { text: lot.url, hyperlink: lot.url };
+    row.getCell(1).value = prog.programId;
+    row.getCell(2).value = prog.programName;
+    row.getCell(3).value = prog.developer ?? "Non communiqué";
+    row.getCell(4).value = prog.city;
+    row.getCell(5).value = prog.postalCode ?? "";
 
-      row.getCell(8).value = prog.totalUnits ?? null;
-      row.getCell(9).value = prog.availableUnits ?? null;
-      row.getCell(10).value = prog.deliveryDate ?? "Non communiqué";
-      row.getCell(11).value = prog.parking ?? "Non communiqué";
-      row.getCell(12).value = lot.typology ?? "Non communiqué";
-      row.getCell(13).value = lot.rooms ?? null;
-      row.getCell(14).value = lot.bedrooms ?? null;
-      row.getCell(15).value = lot.surfaceM2 ?? null;
-      row.getCell(16).value = lot.priceEur ?? null;
+    const urlCell = row.getCell(6);
+    urlCell.value = { text: prog.url, hyperlink: prog.url };
 
-      // Q = Prix/m² via formule Excel
-      const qCell = row.getCell(17);
-      if (lot.surfaceM2 && lot.priceEur) {
-        qCell.value = { formula: `IFERROR(P${rowIdx}/O${rowIdx},"")` };
-      } else {
-        qCell.value = "";
-      }
+    row.getCell(7).value = prog.priceFromEur ?? null;
+    row.getCell(8).value = prog.isPriceMin ? "Oui" : "Non";
+    row.getCell(9).value =
+      prog.typologies && prog.typologies.length > 0
+        ? prog.typologies.join(", ")
+        : prog.typologyRange ?? "Non communiqué";
+    row.getCell(10).value = prog.deliveryDate ?? prog.commercialStatus ?? "Non communiqué";
+    row.getCell(11).value = prog.availableUnitsDetected ?? prog.availableUnits ?? null;
+    row.getCell(12).value = prog.description ?? "";
+    row.getCell(13).value = "Non";
+    row.getCell(14).value =
+      "Surfaces et prix par lot non exposés dans __NEXT_DATA__ — pages détail bloquées HTTP 403 depuis Vercel";
+    row.getCell(15).value = extractedAt;
 
-      row.getCell(18).value = lot.floor ?? "";
-      row.getCell(19).value = lot.outdoorSpace ?? "";
-      row.getCell(20).value = lot.specialStatus?.join(", ") ?? "";
-      row.getCell(21).value = lot.reliabilityScore;
-      row.getCell(22).value = lot.excludedFromStats ? "Oui" : "Non";
-      row.getCell(23).value = lot.exclusionReason ?? "";
-      row.getCell(24).value = lot.extractedAt;
-
-      // Mise en forme par ligne
-      const bg = lot.excludedFromStats ? COLOR_EXCLUDED : COLOR_WHITE;
-      for (let c = 1; c <= DATA_COLS.length; c++) {
-        const cell = row.getCell(c);
-        applyDataStyle(cell, bg);
-      }
-
-      // Réappliquer lien
-      urlCell.font = { color: { argb: "FF0563C1" }, underline: true, size: 10 };
-      urlCell.alignment = { vertical: "middle", wrapText: true };
-
-      // Formats numériques
-      row.getCell(15).numFmt = '#,##0.0 "m²"';
-      row.getCell(16).numFmt = '#,##0 "€"';
-      row.getCell(17).numFmt = '#,##0 "€/m²"';
-
-      row.height = 18;
-      rowIdx++;
+    // Mise en forme
+    for (let c = 1; c <= DATA_COLS.length; c++) {
+      applyDataStyle(row.getCell(c));
     }
+    urlCell.font = { color: { argb: "FF0563C1" }, underline: true, size: 10 };
+    urlCell.alignment = { vertical: "middle", wrapText: true };
+    row.getCell(7).numFmt = '#,##0 "€"';
+    row.getCell(12).alignment = { vertical: "middle", wrapText: true };
+
+    row.height = 20;
+    rowIdx++;
   }
 
   // Largeurs colonnes
@@ -257,27 +232,18 @@ function buildDataSheet(wb: ExcelJS.Workbook, result: NeufAnalysisResult) {
     { width: 18 }, // A ID
     { width: 28 }, // B Nom
     { width: 22 }, // C Promoteur
-    { width: 28 }, // D Adresse
-    { width: 18 }, // E Commune
-    { width: 12 }, // F CP
-    { width: 45 }, // G URL
-    { width: 12 }, // H Total log.
-    { width: 12 }, // I Dispo.
-    { width: 18 }, // J Livraison
-    { width: 14 }, // K Parking
-    { width: 14 }, // L Typologie
-    { width: 10 }, // M Pièces
-    { width: 12 }, // N Chambres
-    { width: 13 }, // O Surface
-    { width: 14 }, // P Prix
-    { width: 14 }, // Q Prix/m²
-    { width: 10 }, // R Étage
-    { width: 18 }, // S Extérieur
-    { width: 18 }, // T Statut
-    { width: 12 }, // U Score
-    { width: 14 }, // V Exclu
-    { width: 28 }, // W Raison
-    { width: 22 }, // X Date extract.
+    { width: 18 }, // D Commune
+    { width: 12 }, // E CP
+    { width: 45 }, // F URL
+    { width: 16 }, // G Prix à partir de
+    { width: 14 }, // H Est prix min
+    { width: 26 }, // I Typologies
+    { width: 28 }, // J Livraison
+    { width: 14 }, // K Lots
+    { width: 40 }, // L Description
+    { width: 18 }, // M Données dispo
+    { width: 50 }, // N Raison
+    { width: 22 }, // O Date
   ];
 
   ws.views = [{ state: "frozen", ySplit: 3 }];
@@ -285,27 +251,23 @@ function buildDataSheet(wb: ExcelJS.Workbook, result: NeufAnalysisResult) {
 }
 
 // ─── ONGLET SYNTHÈSE ──────────────────────────────────────────────────────────
+// Colonnes adaptées aux données disponibles dans __NEXT_DATA__ (pas de surfaces/lots)
 const SYNTH_COLS = [
   "Nom du programme",        // A  1
   "Promoteur",               // B  2
-  "Adresse",                 // C  3
+  "Commune",                 // C  3
   "URL source SeLoger Neuf", // D  4
-  "Total logements",         // E  5
-  "Logements disponibles",   // F  6
-  "% commercialisation",     // G  7
-  "Date de livraison",       // H  8
-  "Parking",                 // I  9
-  "Surf. moy. T1/Studio",    // J  10
-  "Prix/m² T1/Studio",       // K  11
-  "Surf. moy. T2",           // L  12
-  "Prix/m² T2",              // M  13
-  "Surf. moy. T3",           // N  14
-  "Prix/m² T3",              // O  15
-  "Surf. moy. T4",           // P  16
-  "Prix/m² T4",              // Q  17
-  "Surf. moy. T5+",          // R  18
-  "Prix/m² T5+",             // S  19
-  "Prix/m² moyen programme", // T  20
+  "Livraison / Statut",      // E  5
+  "Prix à partir de (€)",    // F  6
+  "Prix minimum ?",          // G  7
+  "Typologies disponibles",  // H  8
+  "Lots détectés",           // I  9
+  "Prix/m² T1/Studio",       // J  10  — vide, surface non disponible
+  "Prix/m² T2",              // K  11
+  "Prix/m² T3",              // L  12
+  "Prix/m² T4",              // M  13
+  "Prix/m² T5+",             // N  14
+  "Prix/m² moyen",           // O  15
 ];
 
 // Mapping colonne synthèse → colonne Data (pour les formules AVERAGEIFS)
@@ -384,100 +346,54 @@ function buildSyntheseSheet(wb: ExcelJS.Workbook, result: NeufAnalysisResult) {
       const r = rowIdx;
       const row = ws.getRow(r);
 
-      // Toutes les cellules = formules pointant vers Adresse ou Data
+      // Formules pointant vers Adresse ou Data
       // A : Nom programme
       row.getCell(1).value = { formula: `Adresse!B${adresseRow}` };
-      // B : Promoteur
+      // B : Promoteur → Data col C
       row.getCell(2).value = {
         formula: `IFERROR(INDEX(Data!$C:$C,MATCH($A${r},Data!$B:$B,0)),"")`,
       };
-      // C : Adresse
-      row.getCell(3).value = { formula: `Adresse!C${adresseRow}` };
-      // D : URL
-      const dCell = row.getCell(4);
-      dCell.value = { formula: `Adresse!G${adresseRow}` };
+      // C : Commune → Adresse col D
+      row.getCell(3).value = { formula: `Adresse!D${adresseRow}` };
+      // D : URL → Adresse col G
+      row.getCell(4).value = { formula: `Adresse!G${adresseRow}` };
 
-      // E : Total logements
+      // E : Livraison / Statut → Data col J
       row.getCell(5).value = {
-        formula: `IFERROR(INDEX(Data!$H:$H,MATCH($A${r},Data!$B:$B,0)),"")`,
-      };
-      // F : Dispo
-      row.getCell(6).value = {
-        formula: `IFERROR(INDEX(Data!$I:$I,MATCH($A${r},Data!$B:$B,0)),"")`,
-      };
-      // G : % commercialisation
-      row.getCell(7).value = { formula: `IFERROR(1-(F${r}/E${r}),"")` };
-
-      // H : Livraison
-      row.getCell(8).value = {
         formula: `IFERROR(INDEX(Data!$J:$J,MATCH($A${r},Data!$B:$B,0)),"")`,
       };
-      // I : Parking
+      // F : Prix à partir de → Data col G
+      row.getCell(6).value = {
+        formula: `IFERROR(INDEX(Data!$G:$G,MATCH($A${r},Data!$B:$B,0)),"")`,
+      };
+      // G : Est prix minimum ? → Data col H
+      row.getCell(7).value = {
+        formula: `IFERROR(INDEX(Data!$H:$H,MATCH($A${r},Data!$B:$B,0)),"")`,
+      };
+      // H : Typologies → Data col I
+      row.getCell(8).value = {
+        formula: `IFERROR(INDEX(Data!$I:$I,MATCH($A${r},Data!$B:$B,0)),"")`,
+      };
+      // I : Lots détectés → Data col K
       row.getCell(9).value = {
         formula: `IFERROR(INDEX(Data!$K:$K,MATCH($A${r},Data!$B:$B,0)),"")`,
       };
-
-      // J : Surf. T1/Studio
-      row.getCell(10).value = {
-        formula: `IFERROR(AVERAGEIFS(Data!$O:$O,Data!$B:$B,$A${r},Data!$L:$L,"T1 / Studio",Data!$V:$V,"Non"),"")`,
-      };
-      // K : Prix/m² T1/Studio
-      row.getCell(11).value = {
-        formula: `IFERROR(AVERAGEIFS(Data!$Q:$Q,Data!$B:$B,$A${r},Data!$L:$L,"T1 / Studio",Data!$V:$V,"Non"),"")`,
-      };
-      // L : Surf. T2
-      row.getCell(12).value = {
-        formula: `IFERROR(AVERAGEIFS(Data!$O:$O,Data!$B:$B,$A${r},Data!$L:$L,"T2",Data!$V:$V,"Non"),"")`,
-      };
-      // M : Prix/m² T2
-      row.getCell(13).value = {
-        formula: `IFERROR(AVERAGEIFS(Data!$Q:$Q,Data!$B:$B,$A${r},Data!$L:$L,"T2",Data!$V:$V,"Non"),"")`,
-      };
-      // N : Surf. T3
-      row.getCell(14).value = {
-        formula: `IFERROR(AVERAGEIFS(Data!$O:$O,Data!$B:$B,$A${r},Data!$L:$L,"T3",Data!$V:$V,"Non"),"")`,
-      };
-      // O : Prix/m² T3
-      row.getCell(15).value = {
-        formula: `IFERROR(AVERAGEIFS(Data!$Q:$Q,Data!$B:$B,$A${r},Data!$L:$L,"T3",Data!$V:$V,"Non"),"")`,
-      };
-      // P : Surf. T4
-      row.getCell(16).value = {
-        formula: `IFERROR(AVERAGEIFS(Data!$O:$O,Data!$B:$B,$A${r},Data!$L:$L,"T4",Data!$V:$V,"Non"),"")`,
-      };
-      // Q : Prix/m² T4
-      row.getCell(17).value = {
-        formula: `IFERROR(AVERAGEIFS(Data!$Q:$Q,Data!$B:$B,$A${r},Data!$L:$L,"T4",Data!$V:$V,"Non"),"")`,
-      };
-      // R : Surf. T5+
-      row.getCell(18).value = {
-        formula: `IFERROR(AVERAGEIFS(Data!$O:$O,Data!$B:$B,$A${r},Data!$L:$L,"T5+",Data!$V:$V,"Non"),"")`,
-      };
-      // S : Prix/m² T5+
-      row.getCell(19).value = {
-        formula: `IFERROR(AVERAGEIFS(Data!$Q:$Q,Data!$B:$B,$A${r},Data!$L:$L,"T5+",Data!$V:$V,"Non"),"")`,
-      };
-      // T : Prix/m² moyen
-      row.getCell(20).value = {
-        formula: `IFERROR(AVERAGEIFS(Data!$Q:$Q,Data!$B:$B,$A${r},Data!$V:$V,"Non"),"")`,
-      };
+      // J–O : Prix/m² par typologie — vide car surfaces non disponibles
+      for (let c = 10; c <= 15; c++) {
+        row.getCell(c).value = "";
+      }
 
       // Mise en forme
       for (let c = 1; c <= ncols; c++) {
         applyDataStyle(row.getCell(c));
       }
-      row.getCell(7).numFmt = "0.0%";
-      row.getCell(10).numFmt = '#,##0.0 "m²"';
+      row.getCell(6).numFmt = '#,##0 "€"';
+      row.getCell(10).numFmt = '#,##0 "€/m²"';
       row.getCell(11).numFmt = '#,##0 "€/m²"';
-      row.getCell(12).numFmt = '#,##0.0 "m²"';
+      row.getCell(12).numFmt = '#,##0 "€/m²"';
       row.getCell(13).numFmt = '#,##0 "€/m²"';
-      row.getCell(14).numFmt = '#,##0.0 "m²"';
+      row.getCell(14).numFmt = '#,##0 "€/m²"';
       row.getCell(15).numFmt = '#,##0 "€/m²"';
-      row.getCell(16).numFmt = '#,##0.0 "m²"';
-      row.getCell(17).numFmt = '#,##0 "€/m²"';
-      row.getCell(18).numFmt = '#,##0.0 "m²"';
-      row.getCell(19).numFmt = '#,##0 "€/m²"';
-      row.getCell(20).numFmt = '#,##0 "€/m²"';
 
       row.height = 22;
       rowIdx++;
@@ -488,25 +404,16 @@ function buildSyntheseSheet(wb: ExcelJS.Workbook, result: NeufAnalysisResult) {
     // ── Ligne total commune ──
     if (groupEndRow >= groupStartRow) {
       const tr = ws.getRow(rowIdx);
-      ws.mergeCells(`A${rowIdx}:C${rowIdx}`);
+      ws.mergeCells(`A${rowIdx}:D${rowIdx}`);
       tr.getCell(1).value = `Total — ${cityName}`;
       tr.getCell(1).fill = darkFill(COLOR_TOTAL_LIGHT.replace("#", ""));
       tr.getCell(1).font = { bold: true, size: 11, color: { argb: `FF${COLOR_HEADER_DARK}` } };
       tr.getCell(1).alignment = { vertical: "middle", horizontal: "right" };
 
-      // E : total logements
-      tr.getCell(5).value = { formula: `SUM(E${groupStartRow}:E${groupEndRow})` };
-      // F : total dispo
-      tr.getCell(6).value = { formula: `SUM(F${groupStartRow}:F${groupEndRow})` };
-      // G : % commercialisation total
-      tr.getCell(7).value = { formula: `IFERROR(1-(F${rowIdx}/E${rowIdx}),"")` };
-      // K : moy prix/m² T1
-      tr.getCell(11).value = { formula: `IFERROR(AVERAGE(K${groupStartRow}:K${groupEndRow}),"")` };
-      tr.getCell(13).value = { formula: `IFERROR(AVERAGE(M${groupStartRow}:M${groupEndRow}),"")` };
-      tr.getCell(15).value = { formula: `IFERROR(AVERAGE(O${groupStartRow}:O${groupEndRow}),"")` };
-      tr.getCell(17).value = { formula: `IFERROR(AVERAGE(Q${groupStartRow}:Q${groupEndRow}),"")` };
-      tr.getCell(19).value = { formula: `IFERROR(AVERAGE(S${groupStartRow}:S${groupEndRow}),"")` };
-      tr.getCell(20).value = { formula: `IFERROR(AVERAGE(T${groupStartRow}:T${groupEndRow}),"")` };
+      // I : total lots détectés
+      tr.getCell(9).value = { formula: `SUM(I${groupStartRow}:I${groupEndRow})` };
+      // F : prix min de la commune
+      tr.getCell(6).value = { formula: `IFERROR(MIN(F${groupStartRow}:F${groupEndRow}),"")` };
 
       for (let c = 1; c <= ncols; c++) {
         const cell = tr.getCell(c);
@@ -515,13 +422,7 @@ function buildSyntheseSheet(wb: ExcelJS.Workbook, result: NeufAnalysisResult) {
         cell.border = thin();
         cell.alignment = { vertical: "middle", horizontal: "center" };
       }
-      tr.getCell(7).numFmt = "0.0%";
-      tr.getCell(11).numFmt = '#,##0 "€/m²"';
-      tr.getCell(13).numFmt = '#,##0 "€/m²"';
-      tr.getCell(15).numFmt = '#,##0 "€/m²"';
-      tr.getCell(17).numFmt = '#,##0 "€/m²"';
-      tr.getCell(19).numFmt = '#,##0 "€/m²"';
-      tr.getCell(20).numFmt = '#,##0 "€/m²"';
+      tr.getCell(6).numFmt = '#,##0 "€"';
       tr.height = 22;
       rowIdx++;
     }
@@ -530,38 +431,14 @@ function buildSyntheseSheet(wb: ExcelJS.Workbook, result: NeufAnalysisResult) {
   }
 
   // ── Ligne Total général ──
-  const lastDataRow = rowIdx - 2;
-  const firstDataRow = 4;
-
-  ws.mergeCells(`A${rowIdx}:C${rowIdx}`);
+  ws.mergeCells(`A${rowIdx}:D${rowIdx}`);
   const totalRow = ws.getRow(rowIdx);
   totalRow.getCell(1).value = "TOTAL GÉNÉRAL";
 
-  totalRow.getCell(5).value = {
-    formula: `IFERROR(SUMIF(Data!$V:$V,"Non",Data!$H:$H),"")`,
-  };
-  totalRow.getCell(6).value = {
-    formula: `IFERROR(SUMIF(Data!$V:$V,"Non",Data!$I:$I),"")`,
-  };
-  totalRow.getCell(7).value = { formula: `IFERROR(1-(F${rowIdx}/E${rowIdx}),"")` };
-  totalRow.getCell(11).value = {
-    formula: `IFERROR(AVERAGEIFS(Data!$Q:$Q,Data!$L:$L,"T1 / Studio",Data!$V:$V,"Non"),"")`,
-  };
-  totalRow.getCell(13).value = {
-    formula: `IFERROR(AVERAGEIFS(Data!$Q:$Q,Data!$L:$L,"T2",Data!$V:$V,"Non"),"")`,
-  };
-  totalRow.getCell(15).value = {
-    formula: `IFERROR(AVERAGEIFS(Data!$Q:$Q,Data!$L:$L,"T3",Data!$V:$V,"Non"),"")`,
-  };
-  totalRow.getCell(17).value = {
-    formula: `IFERROR(AVERAGEIFS(Data!$Q:$Q,Data!$L:$L,"T4",Data!$V:$V,"Non"),"")`,
-  };
-  totalRow.getCell(19).value = {
-    formula: `IFERROR(AVERAGEIFS(Data!$Q:$Q,Data!$L:$L,"T5+",Data!$V:$V,"Non"),"")`,
-  };
-  totalRow.getCell(20).value = {
-    formula: `IFERROR(AVERAGEIFS(Data!$Q:$Q,Data!$V:$V,"Non"),"")`,
-  };
+  // I : total lots détectés
+  totalRow.getCell(9).value = { formula: `IFERROR(SUM(Data!$K:$K),"")` };
+  // F : prix min global
+  totalRow.getCell(6).value = { formula: `IFERROR(MIN(Data!$G:$G),"")` };
 
   for (let c = 1; c <= ncols; c++) {
     const cell = totalRow.getCell(c);
@@ -570,37 +447,26 @@ function buildSyntheseSheet(wb: ExcelJS.Workbook, result: NeufAnalysisResult) {
     cell.border = thin();
     cell.alignment = { vertical: "middle", horizontal: "center" };
   }
-  totalRow.getCell(7).numFmt = "0.0%";
-  totalRow.getCell(11).numFmt = '#,##0 "€/m²"';
-  totalRow.getCell(13).numFmt = '#,##0 "€/m²"';
-  totalRow.getCell(15).numFmt = '#,##0 "€/m²"';
-  totalRow.getCell(17).numFmt = '#,##0 "€/m²"';
-  totalRow.getCell(19).numFmt = '#,##0 "€/m²"';
-  totalRow.getCell(20).numFmt = '#,##0 "€/m²"';
+  totalRow.getCell(6).numFmt = '#,##0 "€"';
   totalRow.height = 26;
 
   // ── Largeurs ──
   ws.columns = [
     { width: 30 }, // A Nom
     { width: 22 }, // B Promoteur
-    { width: 30 }, // C Adresse
+    { width: 20 }, // C Commune
     { width: 45 }, // D URL
-    { width: 14 }, // E Total log.
-    { width: 14 }, // F Dispo
-    { width: 16 }, // G % comm.
-    { width: 18 }, // H Livraison
-    { width: 16 }, // I Parking
-    { width: 14 }, // J Surf T1
-    { width: 14 }, // K P/m² T1
-    { width: 14 }, // L Surf T2
-    { width: 14 }, // M P/m² T2
-    { width: 14 }, // N Surf T3
-    { width: 14 }, // O P/m² T3
-    { width: 14 }, // P Surf T4
-    { width: 14 }, // Q P/m² T4
-    { width: 14 }, // R Surf T5+
-    { width: 14 }, // S P/m² T5+
-    { width: 18 }, // T Moy prog.
+    { width: 28 }, // E Livraison
+    { width: 16 }, // F Prix à partir de
+    { width: 14 }, // G Prix min
+    { width: 26 }, // H Typologies
+    { width: 12 }, // I Lots
+    { width: 14 }, // J P/m² T1 (vide)
+    { width: 14 }, // K P/m² T2 (vide)
+    { width: 14 }, // L P/m² T3 (vide)
+    { width: 14 }, // M P/m² T4 (vide)
+    { width: 14 }, // N P/m² T5+ (vide)
+    { width: 16 }, // O P/m² moy (vide)
   ];
 
   ws.views = [{ state: "frozen", ySplit: 3 }];

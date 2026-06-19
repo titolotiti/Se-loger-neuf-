@@ -356,21 +356,18 @@ function Stat({ label, value, red, warn }: { label: string; value: number; red?:
 // ─── Composant : ligne de programme ──────────────────────────────────────────
 
 function ProgramRow({ prog }: { prog: NeufProgram }) {
-  const included = prog.listings.filter((l) => !l.excludedFromStats);
-
-  const priceByTypo: Record<NeufTypology, number | null> = {
-    "T1 / Studio": null, T2: null, T3: null, T4: null, "T5+": null,
-  };
-
-  for (const t of TYPOLOGIES) {
-    const prices = included
-      .filter((l) => l.typology === t)
-      .map((l) => l.pricePerM2)
-      .filter((v): v is number => v != null && isFinite(v));
-    if (prices.length > 0) {
-      priceByTypo[t] = prices.reduce((a, b) => a + b, 0) / prices.length;
-    }
-  }
+  const deliveryLabel = prog.deliveryDate ?? prog.commercialStatus ?? "—";
+  const typoLabel = prog.typologies && prog.typologies.length > 0
+    ? prog.typologies.join(", ")
+    : prog.typologyRange ?? "—";
+  const priceLabel = prog.priceFromEur != null
+    ? `${fmt(prog.priceFromEur)} €${prog.isPriceMin ? " *" : ""}`
+    : "—";
+  const lotsLabel = prog.availableUnitsDetected != null
+    ? String(prog.availableUnitsDetected)
+    : prog.availableUnits != null
+    ? String(prog.availableUnits)
+    : "—";
 
   return (
     <tr className="hover:bg-blue-50 border-b border-gray-100">
@@ -379,19 +376,12 @@ function ProgramRow({ prog }: { prog: NeufProgram }) {
           {prog.programName}
         </a>
       </td>
-      <td className="px-3 py-2 text-sm text-gray-600">{prog.developer ?? "—"}</td>
+      <td className="px-3 py-2 text-sm text-gray-700">{prog.developer ?? "—"}</td>
       <td className="px-3 py-2 text-sm text-gray-600">{prog.city}</td>
-      <td className="px-3 py-2 text-sm text-gray-600">{prog.deliveryDate ?? "—"}</td>
-      <td className="px-3 py-2 text-sm text-center text-gray-600">
-        {prog.availableUnits != null && prog.totalUnits != null
-          ? `${prog.availableUnits} / ${prog.totalUnits}`
-          : "—"}
-      </td>
-      {TYPOLOGIES.map((t) => (
-        <td key={t} className="px-3 py-2 text-sm text-right text-gray-700">
-          {priceByTypo[t] != null ? `${fmt(priceByTypo[t])} €/m²` : "—"}
-        </td>
-      ))}
+      <td className="px-3 py-2 text-sm text-gray-600 whitespace-nowrap">{deliveryLabel}</td>
+      <td className="px-3 py-2 text-sm text-right font-mono text-gray-800">{priceLabel}</td>
+      <td className="px-3 py-2 text-sm text-gray-600">{typoLabel}</td>
+      <td className="px-3 py-2 text-sm text-center text-gray-600">{lotsLabel}</td>
       <td className="px-3 py-2 text-sm text-center">
         <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
           prog.zoneType === "Commune principale"
@@ -504,62 +494,25 @@ export default function NeufAnalysisResults({ result, onExport, exportLoading }:
         />
       </div>
 
-      {/* Tableau par typologie */}
-      {included.length > 0 && (
-        <div className="overflow-x-auto">
-          <h3 className="text-sm font-semibold text-gray-700 mb-2">Prix/m² moyens par typologie</h3>
-          <table className="w-full text-sm border-collapse">
-            <thead>
-              <tr className="bg-blue-700 text-white">
-                {TYPOLOGIES.map((t) => (
-                  <th key={t} className="px-4 py-2 text-center font-semibold">{t}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              <tr className="bg-white border-b border-gray-200">
-                {TYPOLOGIES.map((t) => {
-                  const prices = included
-                    .filter((l) => l.typology === t)
-                    .map((l) => l.pricePerM2)
-                    .filter((v): v is number => v != null && isFinite(v));
-                  const avg = prices.length ? prices.reduce((a, b) => a + b, 0) / prices.length : null;
-                  return (
-                    <td key={t} className="px-4 py-3 text-center font-mono text-gray-800">
-                      {avg != null ? (
-                        <>
-                          <div className="font-bold text-blue-800">{fmt(avg)} €/m²</div>
-                          <div className="text-xs text-gray-500">{prices.length} lot(s)</div>
-                        </>
-                      ) : (
-                        <span className="text-gray-400">—</span>
-                      )}
-                    </td>
-                  );
-                })}
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      )}
-
       {/* Tableau programmes */}
       {result.programs.length > 0 ? (
         <div className="overflow-x-auto">
           <h3 className="text-sm font-semibold text-gray-700 mb-2">
             Programmes ({result.programs.length})
+            {result.programs.some(p => p.isPriceMin) && (
+              <span className="ml-2 text-xs font-normal text-gray-500">* = prix à partir de</span>
+            )}
           </h3>
-          <table className="w-full text-sm border-collapse min-w-[800px]">
+          <table className="w-full text-sm border-collapse min-w-[900px]">
             <thead>
               <tr className="bg-blue-700 text-white">
                 <th className="px-3 py-2 text-left">Programme</th>
                 <th className="px-3 py-2 text-left">Promoteur</th>
                 <th className="px-3 py-2 text-left">Commune</th>
                 <th className="px-3 py-2 text-left">Livraison</th>
-                <th className="px-3 py-2 text-center">Dispo / Total</th>
-                {TYPOLOGIES.map((t) => (
-                  <th key={t} className="px-3 py-2 text-right whitespace-nowrap">{t}</th>
-                ))}
+                <th className="px-3 py-2 text-right whitespace-nowrap">Prix à partir de</th>
+                <th className="px-3 py-2 text-left">Typologies</th>
+                <th className="px-3 py-2 text-center">Lots</th>
                 <th className="px-3 py-2 text-center">Zone</th>
               </tr>
             </thead>

@@ -14,7 +14,7 @@ const BOOKMARKLET_VERSION = "v2-accordion-debug";
 (async function extractSeLogerNeufLots() {
   'use strict';
 
-  if (!window.location.href.includes('selogerneuf.com') && !window.location.href.includes('seloger.com')) {
+  if (!window.location.href.includes('selogerneuf.com')) {
     alert('[' + BOOKMARKLET_VERSION + '] ⚠️ Ce script doit être exécuté sur une page SeLoger Neuf.\nURL actuelle : ' + window.location.href);
     return;
   }

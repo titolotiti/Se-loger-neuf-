@@ -110,6 +110,16 @@ export type NeufListing = {
   availableCount?: number;
 };
 
+export type ImportedLotDebug = {
+  rawTypology: string;
+  rawBlockText: string;
+  parsedSurface: number | null;
+  parsedPrice: number | null;
+  parsedPricePerM2: number | null;
+  parsedAvailableCount: number;
+  parsingWarnings: string[];
+};
+
 export type ImportedLot = {
   typology: NeufTypology | null;
   rawTypology: string;
@@ -117,6 +127,7 @@ export type ImportedLot = {
   priceEur?: number | null;
   pricePerM2?: number | null;
   availableCount: number;
+  debug?: ImportedLotDebug;
 };
 
 export type ImportedProgramData = {
@@ -126,6 +137,8 @@ export type ImportedProgramData = {
   availableUnits?: number | null;
   lots: ImportedLot[];
   importedAt: string;
+  bookmarkletVersion?: string;
+  bodyTextSample?: string;
 };
 
 export type NeufProgram = {

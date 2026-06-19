@@ -1,90 +1,128 @@
 /**
  * SeLoger Neuf — Extracteur de lots
- * Utilisation :
+ * Version : v2-accordion-debug
+ *
+ * Instructions :
  *   1. Ouvrir la page d'un programme SeLoger Neuf dans le navigateur
  *   2. Ouvrir la console (F12 → Console)
  *   3. Coller ce script et appuyer sur Entrée
  *   4. Copier le JSON généré et le coller dans l'outil (bouton "Importer les lots")
  */
+
+const BOOKMARKLET_VERSION = "v2-accordion-debug";
+
 (async function extractSeLogerNeufLots() {
   'use strict';
 
   if (!window.location.href.includes('selogerneuf.com') && !window.location.href.includes('seloger.com')) {
-    alert('⚠️ Ce script doit être exécuté sur une page SeLoger Neuf.\nURL actuelle : ' + window.location.href);
+    alert('[' + BOOKMARKLET_VERSION + '] ⚠️ Ce script doit être exécuté sur une page SeLoger Neuf.\nURL actuelle : ' + window.location.href);
     return;
   }
 
+  console.log('[SLN ' + BOOKMARKLET_VERSION + '] Démarrage sur :', window.location.href);
+
   const result = {
+    bookmarkletVersion: BOOKMARKLET_VERSION,
     programName: document.title.replace(/\s*[-–|].*$/, '').trim() || '(inconnu)',
-    sourceUrl: window.location.href,
+    pageUrl: window.location.href,
     totalUnits: null,
     availableUnits: null,
+    bodyTextSample: '',
+    rawTypologyBlocks: [],
     lots: [],
   };
 
-  console.log('[SLN] Extraction des lots depuis :', result.sourceUrl);
-
-  // ── Stratégie 1 : __NEXT_DATA__ (plus fiable) ────────────────────────────
+  // ── Stratégie 1 : __NEXT_DATA__ (JSON embarqué dans la page) ─────────────
   const nextEl = document.getElementById('__NEXT_DATA__');
   if (nextEl) {
     try {
       const nd = JSON.parse(nextEl.textContent || '{}');
       const ndResult = extractFromNextData(nd);
       if (ndResult.lots.length > 0) {
-        Object.assign(result, ndResult);
-        console.log('[SLN] ✓ Données extraites depuis __NEXT_DATA__ —', result.lots.length, 'type(s)');
+        result.lots = ndResult.lots;
+        if (ndResult.programName) result.programName = ndResult.programName;
+        result.totalUnits = ndResult.totalUnits;
+        result.availableUnits = ndResult.availableUnits;
+        console.log('[SLN] ✓ __NEXT_DATA__ — ' + result.lots.length + ' lot(s)');
+      } else {
+        console.log('[SLN] __NEXT_DATA__ présent mais aucun lot — passage stratégie DOM');
       }
     } catch (e) {
-      console.warn('[SLN] Erreur parsing __NEXT_DATA__ :', e.message);
+      console.warn('[SLN] Erreur __NEXT_DATA__ :', e.message);
     }
   }
 
-  // ── Stratégie 2 : DOM ────────────────────────────────────────────────────
+  // ── Stratégie 2 : accordéons + lecture innerText ──────────────────────────
   if (result.lots.length === 0) {
-    console.log('[SLN] Tentative extraction DOM...');
-    await expandAccordions();
+    console.log('[SLN] Expansion des accordéons...');
+    const nbClicked = await expandAccordions();
+    console.log('[SLN] ' + nbClicked + ' élément(s) cliqué(s). Attente 2 s...');
+    await delay(2000);
+
     const domResult = extractFromDOM();
+    result.bodyTextSample    = domResult.bodyTextSample;
+    result.rawTypologyBlocks = domResult.rawTypologyBlocks;
+
     if (domResult.lots.length > 0) {
-      Object.assign(result, domResult);
-      console.log('[SLN] ✓ Données extraites depuis le DOM —', result.lots.length, 'type(s)');
+      result.lots       = domResult.lots;
+      result.totalUnits = domResult.totalUnits;
+      console.log('[SLN] ✓ DOM — ' + result.lots.length + ' lot(s)');
+    } else {
+      console.warn('[SLN] ✗ DOM — aucun lot. Voir bodyTextSample dans le JSON pour diagnostic.');
     }
+  } else {
+    // Stratégie 1 réussie — capturer quand même bodyTextSample pour contexte
+    const bt = document.body.innerText || '';
+    const idx = bt.search(/logements?\s+disponibles?/i);
+    result.bodyTextSample = idx >= 0
+      ? bt.slice(Math.max(0, idx - 50), idx + 1200)
+      : bt.slice(0, 1200);
   }
 
-  if (result.lots.length === 0) {
-    alert('❌ Aucune donnée de lot détectée.\n\nEssayez :\n• D\'ouvrir manuellement les sections typologies (accordéons)\n• De vérifier que vous êtes sur la page d\'un programme SeLoger Neuf\n• D\'inspecter la console pour plus de détails');
-    return;
+  // Fallback totalUnits
+  if (!result.totalUnits) {
+    const bt = document.body.innerText || '';
+    const m = bt.match(/(\d+)\s+logements?\s+(?:au\s*total|dont)/i)
+           || bt.match(/Programme\s+.+?\s+contient\s+(\d+)\s+logements/i)
+           || bt.match(/(\d+)\s+logements?\s+neufs?/i);
+    if (m) result.totalUnits = parseInt(m[1], 10);
   }
 
-  // Calcul availableUnits si non trouvé
   if (!result.availableUnits) {
-    result.availableUnits = result.lots.reduce((s, l) => s + (l.availableCount || 0), 0);
+    result.availableUnits = result.lots.reduce(function(s, l) { return s + (l.availableCount || 0); }, 0);
   }
 
   const json = JSON.stringify(result, null, 2);
-  console.log('[SLN] Résultat final :', result);
+  console.log('[SLN] Résultat :', result);
 
-  // ── Copie dans le presse-papiers ─────────────────────────────────────────
+  // ── Alerte + presse-papiers ───────────────────────────────────────────────
+  const lotCount = result.lots.length;
+  const alertMsg =
+    (lotCount > 0 ? '✅' : '⚠️') + ' [' + BOOKMARKLET_VERSION + '] ' +
+    lotCount + ' lot(s) détecté(s) pour « ' + result.programName + ' »\n\n' +
+    (lotCount > 0
+      ? 'JSON copié dans le presse-papiers.\nCollez-le dans l\'outil → "Importer les lots".'
+      : 'Aucun lot détecté.\nCollez quand même le JSON — le diagnostic (bodyTextSample) est inclus.');
+
   try {
     await navigator.clipboard.writeText(json);
-    alert(`✅ ${result.lots.length} typologie(s) extraite(s) pour « ${result.programName} »\n\nJSON copié dans le presse-papiers.\nCollez-le dans l'outil → bouton "Importer les lots".`);
+    alert(alertMsg);
   } catch {
-    const ta = document.createElement('textarea');
-    ta.value = json;
-    Object.assign(ta.style, { position: 'fixed', top: '10px', left: '10px', width: '80vw', height: '60vh', zIndex: '999999', fontFamily: 'monospace', fontSize: '12px', background: '#1e1e2e', color: '#cdd6f4', border: '2px solid #89b4fa', borderRadius: '8px', padding: '12px' });
-    document.body.appendChild(ta);
-    ta.select();
-    try { document.execCommand('copy'); } catch {}
-    const btn = document.createElement('button');
-    btn.textContent = '✕ Fermer';
-    Object.assign(btn.style, { position: 'fixed', top: '10px', right: '10px', zIndex: '1000000', padding: '8px 16px', background: '#f38ba8', color: '#1e1e2e', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' });
-    btn.onclick = () => { ta.remove(); btn.remove(); };
-    document.body.appendChild(btn);
-    alert('✅ JSON généré. Copiez le contenu de la zone qui vient d\'apparaître et collez-le dans l\'outil.');
+    showTextarea(json);
+    alert(alertMsg);
   }
 
-  // ════════════════════════════════════════════════════════════════
-  // Fonctions utilitaires
-  // ════════════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Fonctions
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  function parseNum(v) {
+    if (v == null) return null;
+    // Supprimer tout sauf chiffres et virgule/point, normaliser décimale
+    const s = String(v).replace(/[^\d,]/g, '').replace(',', '.');
+    const n = parseFloat(s);
+    return isFinite(n) && n > 0 ? n : null;
+  }
 
   function normalizeTypo(raw) {
     if (!raw) return null;
@@ -97,40 +135,45 @@
     return null;
   }
 
-  function parseNum(v) {
-    if (v == null) return null;
-    const s = String(v).replace(/[^\d,.]/g, '').replace(',', '.');
-    const n = parseFloat(s);
-    return isFinite(n) && n > 0 ? n : null;
+  // ── __NEXT_DATA__ ──────────────────────────────────────────────────────────
+
+  function extractFromNextData(nd) {
+    const r = { lots: [], programName: null, totalUnits: null, availableUnits: null };
+    try {
+      const pp = nd && nd.props && nd.props.pageProps;
+      if (pp) {
+        r.programName = (pp.programName || pp.name || pp.title ||
+          (pp.program && (pp.program.name || pp.program.title)) ||
+          (pp.realEstate && (pp.realEstate.name || pp.realEstate.title))) || null;
+      }
+    } catch(e) {}
+    const lotsArr = findLotsArray(nd, 0);
+    if (lotsArr) {
+      r.lots = lotsArr.map(lotFromJson).filter(function(l) {
+        return l && (l.typology || l.priceEur || l.surfaceM2);
+      });
+    }
+    return r;
   }
 
-  // ── Extraction depuis __NEXT_DATA__ ──────────────────────────────────────
-
   function findLotsArray(data, depth) {
-    depth = depth || 0;
     if (depth > 14 || !data || typeof data !== 'object') return null;
-
     if (Array.isArray(data)) {
       if (data.length > 0 && isLotLike(data[0])) return data;
-      for (var i = 0; i < data.length; i++) {
-        var r = findLotsArray(data[i], depth + 1);
+      for (let i = 0; i < data.length; i++) {
+        const r = findLotsArray(data[i], depth + 1);
         if (r) return r;
       }
       return null;
     }
-
-    // Priority keys
-    var prio = ['lots', 'logements', 'typologies', 'lotsTypes', 'typesList', 'units',
-                'availableTypes', 'typelogements', 'lotsAvailable', 'lotsMatchingSearch',
-                'properties', 'classifications', 'offerings'];
-    for (var j = 0; j < prio.length; j++) {
-      var arr = data[prio[j]];
+    const prio = ['lots','logements','typologies','lotsTypes','typesList','units',
+                  'availableTypes','typelogements','lotsAvailable','lotsMatchingSearch'];
+    for (let j = 0; j < prio.length; j++) {
+      const arr = data[prio[j]];
       if (Array.isArray(arr) && arr.length > 0 && isLotLike(arr[0])) return arr;
     }
-
-    var vals = Object.values(data);
-    for (var k = 0; k < vals.length; k++) {
-      var found = findLotsArray(vals[k], depth + 1);
+    for (const val of Object.values(data)) {
+      const found = findLotsArray(val, depth + 1);
       if (found) return found;
     }
     return null;
@@ -138,25 +181,23 @@
 
   function isLotLike(item) {
     if (!item || typeof item !== 'object' || Array.isArray(item)) return false;
-    var keys = Object.keys(item).map(function(k) { return k.toLowerCase(); });
-    var hasPrice = keys.some(function(k) { return /price|prix|tarif|montant/.test(k); });
-    var hasSurf = keys.some(function(k) { return /surface|area|m2|superficie/.test(k); });
-    var hasType = keys.some(function(k) { return /typo|type|pieces|rooms|libelle|label/.test(k); });
+    const keys = Object.keys(item).map(k => k.toLowerCase());
+    const hasPrice = keys.some(k => /price|prix|tarif|montant/.test(k));
+    const hasSurf  = keys.some(k => /surface|area|m2|superficie/.test(k));
+    const hasType  = keys.some(k => /typo|type|pieces|rooms|libelle|label/.test(k));
     return hasPrice || (hasSurf && hasType);
   }
 
   function lotFromJson(item) {
     if (!item || typeof item !== 'object') return null;
-    function get() {
-      for (var i = 0; i < arguments.length; i++) {
-        if (item[arguments[i]] != null) return item[arguments[i]];
-      }
+    function get(...args) {
+      for (const k of args) { if (item[k] != null) return item[k]; }
       return null;
     }
-    var rawTypo = String(get('typology','type','typeName','libelle','label','typelogement','roomType') || '');
-    var typo = normalizeTypo(rawTypo);
+    const rawTypo = String(get('typology','type','typeName','libelle','label','typelogement','roomType') || '');
+    let typo = normalizeTypo(rawTypo);
     if (!typo) {
-      var pieces = parseNum(get('pieces','nbPieces','rooms','roomsCount','roomCount'));
+      const pieces = parseNum(get('pieces','nbPieces','rooms','roomsCount','roomCount'));
       if (pieces) {
         if (pieces <= 1) typo = 'T1 / Studio';
         else if (pieces === 2) typo = 'T2';
@@ -165,146 +206,215 @@
         else typo = 'T5+';
       }
     }
-    var price = parseNum(get('price','prix','prixMin','minPrice','fromPrice','tarif','montant'));
-    var surface = parseNum(get('surface','surfaceMin','minSurface','surfaceHabitable','area','minArea','areaMin'));
-    var ppm2 = parseNum(get('pricePerM2','prixM2','prixParM2','priceM2'));
+    const price   = parseNum(get('price','prix','prixMin','minPrice','fromPrice','tarif','montant'));
+    const surface = parseNum(get('surface','surfaceMin','minSurface','surfaceHabitable','area','minArea'));
+    let ppm2      = parseNum(get('pricePerM2','prixM2','prixParM2','priceM2'));
     if (!ppm2 && price && surface) ppm2 = Math.round(price / surface);
-    var count = parseNum(get('count','available','availableCount','nbBiens','quantity','disponible','nb')) || 1;
-    return {
-      typology: typo,
-      rawTypology: rawTypo || typo,
-      surfaceM2: surface,
-      priceEur: price,
-      pricePerM2: ppm2,
-      availableCount: Math.round(count),
-    };
+    const count   = parseNum(get('count','available','availableCount','nbBiens','quantity','disponible','nb')) || 1;
+    return { typology: typo, rawTypology: rawTypo || typo || '', surfaceM2: surface, priceEur: price, pricePerM2: ppm2, availableCount: Math.round(count) };
   }
 
-  function extractFromNextData(nd) {
-    var r = { programName: null, totalUnits: null, availableUnits: null, lots: [] };
+  // ── Expansion accordéons ───────────────────────────────────────────────────
 
-    // Try to get name from props
-    try {
-      var pp = nd && nd.props && nd.props.pageProps;
-      if (pp) {
-        r.programName = (pp.programName || pp.name || pp.title ||
-          (pp.program && (pp.program.name || pp.program.title)) ||
-          (pp.realEstate && (pp.realEstate.name || pp.realEstate.title)) ||
-          (pp.classified && (pp.classified.name || pp.classified.title))) || null;
+  async function expandAccordions() {
+    let clicked = 0;
+    const seen = new Set();
+
+    // 3 passes — pour capturer les accordéons révélés de façon lazy après les premiers clics
+    for (let pass = 0; pass < 3; pass++) {
+      let foundNew = false;
+
+      // aria-expanded="false" = accordéon fermé standard
+      document.querySelectorAll('[aria-expanded="false"]').forEach(el => {
+        if (seen.has(el)) return;
+        seen.add(el); el.click(); clicked++; foundNew = true;
+      });
+
+      // Classes spécifiques SeLoger Neuf (à adapter si la structure change)
+      const extraSels = [
+        'button[class*="accordion"]', 'button[class*="Accordion"]',
+        'button[class*="typology"]',  'button[class*="Typology"]',
+        'button[class*="TypeCard"]',  'button[class*="lot"]',
+        '[data-testid*="accordion"]', '[data-testid*="typology"]',
+        '[data-testid*="type"]',
+      ];
+      for (const sel of extraSels) {
+        try {
+          document.querySelectorAll(sel).forEach(el => {
+            if (seen.has(el)) return;
+            if (el.getAttribute('aria-expanded') === 'true') return;
+            seen.add(el); el.click(); clicked++; foundNew = true;
+          });
+        } catch(e) {}
       }
-    } catch(e) {}
 
-    // Total units from text
-    var bt = document.body.innerText || '';
-    var tm = bt.match(/Programme\s+(.+?)\s+contient\s+(\d+)\s+logements/i);
-    if (tm) {
-      r.programName = r.programName || tm[1].trim();
-      r.totalUnits = parseInt(tm[2]);
+      if (!foundNew) break;
+      await delay(600);
     }
 
-    // Find lots
-    var lotsArr = findLotsArray(nd);
-    if (lotsArr) {
-      r.lots = lotsArr.map(lotFromJson).filter(function(l) {
-        return l && (l.typology || l.priceEur || l.surfaceM2);
+    return clicked;
+  }
+
+  // ── Extraction DOM / innerText ─────────────────────────────────────────────
+  //
+  // 1. Localiser la section "Logements disponibles" dans innerText
+  // 2. Découper par headers de typologies (STUDIO, APPARTEMENT N PIÈCES, …)
+  // 3. Pour chaque bloc : extraire surface, prix, prix/m², nb disponibles
+  // 4. Retourner rawBlockText et parsingWarnings pour diagnostic
+
+  function extractFromDOM() {
+    const r = {
+      lots: [], totalUnits: null, availableUnits: null,
+      bodyTextSample: '', rawTypologyBlocks: [],
+    };
+
+    const bt = document.body.innerText || '';
+
+    // Localiser "Logements disponibles"
+    const sectionIdx = bt.search(/logements?\s+disponibles?/i);
+    const searchText = sectionIdx >= 0 ? bt.slice(sectionIdx) : bt;
+    r.bodyTextSample = sectionIdx >= 0
+      ? bt.slice(Math.max(0, sectionIdx - 50), sectionIdx + 1200)
+      : bt.slice(0, 1200);
+
+    // Total logements
+    const tm = bt.match(/(\d+)\s+logements?\s+(?:au\s*total|dont)/i)
+            || bt.match(/Programme\s+.+?\s+contient\s+(\d+)\s+logements/i)
+            || bt.match(/(\d+)\s+logements?\s+neufs?/i);
+    if (tm) r.totalUnits = parseInt(tm[1], 10);
+
+    // ── Identification des headers de typologies ───────────────────────────
+    // Patterns correspondant aux titres des volets SeLoger Neuf
+    const TYPO_HEADER_PATTERNS = [
+      /^STUDIO$/i,
+      /^APPARTEMENT\s+\d+\s*PI[EÈ]CES?$/i,
+      /^MAISON\s+\d+\s*PI[EÈ]CES?$/i,
+      /^T[1-7]$/i,
+      /^F[1-7]$/i,
+      /^\d\s*PI[EÈ]CES?$/i,
+    ];
+
+    function isTypoHeader(line) {
+      const t = line.trim();
+      if (!t || t.length > 80) return false;
+      return TYPO_HEADER_PATTERNS.some(pat => pat.test(t));
+    }
+
+    const lines = searchText.split('\n');
+    const headerPositions = [];
+    for (let i = 0; i < lines.length; i++) {
+      if (isTypoHeader(lines[i])) {
+        headerPositions.push({ header: lines[i].trim(), lineIndex: i });
+      }
+    }
+
+    console.log('[SLN] Headers typologies :', headerPositions.map(h => '"' + h.header + '"'));
+
+    // ── Extraction par bloc ────────────────────────────────────────────────
+    for (let hi = 0; hi < headerPositions.length; hi++) {
+      const startLine = headerPositions[hi].lineIndex;
+      const endLine   = hi + 1 < headerPositions.length
+        ? headerPositions[hi + 1].lineIndex
+        : Math.min(startLine + 80, lines.length);
+
+      const blockLines = lines.slice(startLine, endLine);
+      const blockText  = blockLines.join('\n').trim();
+      const rawTypo    = headerPositions[hi].header;
+      const typo       = normalizeTypo(rawTypo);
+      const warnings   = [];
+
+      // Surface : "37 m²" ou "37m²"
+      const surfM   = blockText.match(/(\d+(?:[,.]\d+)?)\s*m[²2]/);
+      const surface = surfM ? parseNum(surfM[1]) : null;
+      if (!surface) warnings.push('Surface non trouvée (cherché : X m²)');
+
+      // Prix/m² : "Soit 15 158 €/m²" ou "15 158 €/m²"
+      const pm2M = blockText.match(/Soit\s+([\d\s]+\d)\s*€\s*\/\s*m[²2]/i)
+                || blockText.match(/([\d][\d\s]*\d)\s*€\s*\/\s*m[²2]/);
+      const pricePerM2raw = pm2M ? parseNum(pm2M[1]) : null;
+
+      // Prix total : ligne "X €" sans "€/m²"
+      let price = null;
+      for (const bl of blockLines) {
+        const t = bl.trim();
+        if (/€\s*\/\s*m[²2]/.test(t) || /^Soit\b/i.test(t)) continue;
+        const prM = t.match(/(\d[\d\s]{3,}\d)\s*€\s*$/)
+                 || t.match(/De\s+([\d\s]+)\s*€\s*$/i)
+                 || t.match(/partir\s+de\s+([\d\s]+)\s*€/i);
+        if (prM) {
+          const v = parseNum(prM[1]);
+          if (v && v > 10000) { price = v; break; }
+        }
+      }
+      // Fallback large (pattern souple)
+      if (!price) {
+        const wideM = blockText.match(/([\d][\d\s]{4,}[\d])\s*€(?!\s*\/)/);
+        if (wideM) {
+          const v = parseNum(wideM[1]);
+          if (v && v > 10000) { price = v; warnings.push('Prix trouvé par pattern large — à vérifier'); }
+        }
+      }
+      if (!price) warnings.push('Prix non trouvé (cherché : X €)');
+
+      const finalPm2 = pricePerM2raw ?? (price && surface ? Math.round(price / surface) : null);
+      if (!pricePerM2raw && price && surface) warnings.push('Prix/m² calculé (non lu sur la page)');
+
+      // Nb disponibles
+      const countM = blockText.match(/(\d+)\s*biens?\s*disponibles?/i)
+                  || blockText.match(/(\d+)\s*logements?\s*disponibles?/i)
+                  || blockText.match(/disponibles?\s*:\s*(\d+)/i)
+                  || blockText.match(/(\d+)\s*disponibles?/i);
+      const count = countM ? parseInt(countM[1], 10) : 1;
+      if (!countM) warnings.push('Nb disponibles non trouvé, défaut = 1');
+
+      const debug = {
+        rawTypology: rawTypo,
+        rawBlockText: blockText,
+        parsedSurface: surface,
+        parsedPrice: price,
+        parsedPricePerM2: finalPm2,
+        parsedAvailableCount: count,
+        parsingWarnings: warnings,
+      };
+
+      r.rawTypologyBlocks.push(debug);
+      r.lots.push({
+        typology: typo,
+        rawTypology: rawTypo,
+        surfaceM2: surface,
+        priceEur: price,
+        pricePerM2: finalPm2,
+        availableCount: count,
+        debug: debug,
       });
     }
 
     return r;
   }
 
-  // ── Expansion des accordéons ──────────────────────────────────────────────
+  function delay(ms) { return new Promise(res => setTimeout(res, ms)); }
 
-  async function expandAccordions() {
-    var sels = [
-      '[aria-expanded="false"]',
-      '[data-accordion-trigger]',
-      'button[class*="accordion"]',
-      'button[class*="typology"]',
-      'button[class*="lot"]',
-      '[role="button"][aria-expanded="false"]',
-    ];
-    var clicked = 0;
-    for (var s = 0; s < sels.length; s++) {
-      try {
-        var els = document.querySelectorAll(sels[s]);
-        for (var i = 0; i < els.length; i++) {
-          var el = els[i];
-          var txt = (el.textContent || '').toLowerCase();
-          if (/studio|pi[eè]ces?|appartement|logement|bien/.test(txt)) {
-            el.click();
-            clicked++;
-            await delay(150);
-          }
-        }
-      } catch(e) {}
-    }
-    if (clicked > 0) await delay(1000);
+  function showTextarea(json) {
+    const ta = document.createElement('textarea');
+    ta.value = json;
+    Object.assign(ta.style, {
+      position: 'fixed', top: '10px', left: '10px', width: '80vw', height: '60vh',
+      zIndex: '999999', fontFamily: 'monospace', fontSize: '11px',
+      background: '#1e1e2e', color: '#cdd6f4',
+      border: '2px solid #89b4fa', borderRadius: '8px', padding: '12px',
+    });
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); } catch {}
+    const btn = document.createElement('button');
+    btn.textContent = '✕ Fermer';
+    Object.assign(btn.style, {
+      position: 'fixed', top: '10px', right: '10px', zIndex: '1000000',
+      padding: '8px 16px', background: '#f38ba8', color: '#1e1e2e',
+      border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold',
+    });
+    btn.onclick = () => { ta.remove(); btn.remove(); };
+    document.body.appendChild(btn);
   }
-
-  // ── Extraction depuis le DOM / innerText ─────────────────────────────────
-
-  function extractFromDOM() {
-    var r = { programName: null, totalUnits: null, availableUnits: null, lots: [] };
-    var bt = document.body.innerText || '';
-
-    // Total units
-    var tm = bt.match(/Programme\s+(.+?)\s+contient\s+(\d+)\s+logements/i);
-    if (tm) { r.programName = tm[1].trim(); r.totalUnits = parseInt(tm[2]); }
-
-    // Typology header pattern
-    var typoRe = /^(studio|appartement\s+\d+\s*pi[eè]ces?|maison\s+\d+\s*pi[eè]ces?|t[1-7]\b)/i;
-    var lines = bt.split('\n').map(function(l) { return l.trim(); }).filter(Boolean);
-    var lotMap = {};
-    var cur = null;
-
-    for (var i = 0; i < lines.length; i++) {
-      var line = lines[i];
-
-      var tm2 = line.match(typoRe);
-      if (tm2) {
-        var rawT = tm2[0].trim();
-        var typo = normalizeTypo(rawT);
-        if (typo && !lotMap[typo]) {
-          lotMap[typo] = { typology: typo, rawTypology: rawT, surfaceM2: null, priceEur: null, pricePerM2: null, availableCount: 0 };
-        }
-        cur = typo ? lotMap[typo] : null;
-        continue;
-      }
-
-      if (!cur) continue;
-
-      // Biens
-      var bm = line.match(/(\d+)\s*bien/i);
-      if (bm) cur.availableCount = parseInt(bm[1]);
-
-      // Prix/m²
-      var pm2 = line.match(/Soit\s+([\d\s]+(?:[\d]))\s*€\/m²/i) ||
-                line.match(/([\d][\d\s]*)\s*€\/m²/);
-      if (pm2) cur.pricePerM2 = parseNum(pm2[1]);
-
-      // Surface
-      var sm = line.match(/(\d+(?:[,.]\d+)?)\s*m²/);
-      if (sm && !pm2) cur.surfaceM2 = parseNum(sm[1]);
-
-      // Prix
-      var prm = line.match(/^([\d][\d\s]*)\s*€\s*$/) ||
-                line.match(/De\s+([\d\s]+)\s*€/i);
-      if (prm && !pm2) {
-        var price = parseNum(line.replace(/[^\d]/g, ''));
-        if (price && price > 10000) cur.priceEur = cur.priceEur || price;
-      }
-
-      // Compute pricePerM2 if possible
-      if (cur.priceEur && cur.surfaceM2 && !cur.pricePerM2) {
-        cur.pricePerM2 = Math.round(cur.priceEur / cur.surfaceM2);
-      }
-    }
-
-    r.lots = Object.values(lotMap).filter(function(l) { return l.typology; });
-    return r;
-  }
-
-  function delay(ms) { return new Promise(function(res) { setTimeout(res, ms); }); }
 
 })();

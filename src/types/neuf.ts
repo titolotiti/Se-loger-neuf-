@@ -117,12 +117,20 @@ export type NeufProgram = {
   address?: string;
   city: string;
   postalCode?: string;
+  inseeCode?: string;
   zoneType: ZoneType;
   url: string;
   totalUnits?: number;
   availableUnits?: number;
+  availableUnitsDetected?: number;
   deliveryDate?: string;
+  commercialStatus?: string;
   parking?: ParkingStatus;
+  priceFromEur?: number;
+  isPriceMin?: boolean;
+  typologyRange?: string;
+  typologies?: NeufTypology[];
+  description?: string;
   listings: NeufListing[];
 };
 

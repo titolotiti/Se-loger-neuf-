@@ -961,3 +961,85 @@ export function parseSearchResultsPrograms(
   console.log(`[parser:search] → ${programs.length} programme(s), ${duplicatesSkipped} doublons, rejets: ${JSON.stringify(rejectionSummary)}`);
   return { programs, rawItemCount: items.length, categorySkipped, duplicatesSkipped, rejectionSummary, sampleItemKeys, programDebugInfos: debugInfos };
 }
+
+// ─── Exports utilitaires pour le endpoint debug ───────────────────────────────
+
+export function findListingsWithPaths(
+  data: unknown,
+  path = "root",
+  depth = 0
+): { items: unknown[]; path: string } | null {
+  if (depth > 8 || !data || typeof data !== "object") return null;
+  const obj = data as Record<string, unknown>;
+  for (const key of SEARCH_LISTING_ARRAY_KEYS) {
+    const val = obj[key];
+    if (Array.isArray(val) && val.length > 0 && looksLikeProgramArray(val)) {
+      return { items: val, path: `${path}.${key}` };
+    }
+  }
+  for (const [key, val] of Object.entries(obj)) {
+    if (val && typeof val === "object" && !Array.isArray(val)) {
+      const found = findListingsWithPaths(val, `${path}.${key}`, depth + 1);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+export function analyzeItemsForDebug(items: unknown[], basePath: string, baseUrl: string): object[] {
+  return items.map((rawItem, i) => {
+    const itemPath = `${basePath}[${i}]`;
+    if (!rawItem || typeof rawItem !== "object") {
+      return { index: i, path: itemPath, error: "Item non-objet", rawObject: rawItem };
+    }
+    const item = rawItem as Record<string, unknown>;
+
+    const rawUrl = getRawUrl(item);
+    let resolvedUrl: string | undefined;
+    let hasValidProgramUrl = false;
+    if (rawUrl) {
+      try {
+        const resolved = rawUrl.startsWith("http") ? rawUrl : new URL(rawUrl, baseUrl).toString();
+        resolvedUrl = resolved.split("#")[0];
+        hasValidProgramUrl = isProgramDetailUrl(resolvedUrl);
+      } catch { /* ignore */ }
+    }
+
+    const name = getStrNested(item, NAME_FIELDS);
+    const hasValidName = !!(name && isValidProgramName(name));
+    const urlInfo = resolvedUrl ? extractCityFromProgramUrl(resolvedUrl) : {};
+
+    let rejectReason: string | undefined;
+    if (!rawUrl) rejectReason = "URL manquante";
+    else if (!resolvedUrl) rejectReason = "URL invalide";
+    else if (!hasValidProgramUrl) rejectReason = `URL non-programme: "${resolvedUrl}"`;
+    else if (!hasValidName && !urlInfo.city) rejectReason = `Nom absent ou générique: "${name ?? "(vide)"}"`;
+
+    const lots = extractLots(item);
+
+    return {
+      index: i,
+      path: itemPath,
+      rawKeys: Object.keys(item),
+      rawObject: item,
+      detected: {
+        url: rawUrl,
+        resolvedUrl,
+        name: name ?? undefined,
+        city: getStrNested(item, CITY_FIELDS) ?? urlInfo.city,
+        developer: extractDeveloper(item),
+        price: extractPrice(item),
+        surface: extractSurface(item),
+        deliveryDate: getStr(item, ...DELIVERY_FIELDS_EXT),
+        lotsCount: lots.length,
+        programId: getIdStr(item, "id", "idAnnonce", "classifiedId", "programmeId", "programId") ?? urlInfo.programId,
+      },
+      validation: {
+        hasValidProgramUrl,
+        hasValidName,
+        rejectReason,
+        retained: !rejectReason,
+      },
+    };
+  });
+}

@@ -3,18 +3,93 @@
 import { useState } from "react";
 import NeufAddressForm from "@/components/neuf/NeufAddressForm";
 import NeufAnalysisResults from "@/components/neuf/NeufAnalysisResults";
-import type { NeufAnalysisInput, NeufAnalysisResult } from "@/types/neuf";
+import type {
+  NeufAnalysisInput,
+  NeufAnalysisResult,
+  NeufListing,
+  ImportedProgramData,
+} from "@/types/neuf";
+
+function mergeImportedLotsIntoResult(
+  result: NeufAnalysisResult,
+  importedLots: Record<string, ImportedProgramData>
+): NeufAnalysisResult {
+  if (Object.keys(importedLots).length === 0) return result;
+
+  const mergedPrograms = result.programs.map((prog) => {
+    const imported = importedLots[prog.programId];
+    if (!imported || imported.lots.length === 0) return prog;
+
+    const listings: NeufListing[] = imported.lots
+      .filter((lot) => lot.typology !== null)
+      .map((lot, idx) => {
+        const pricePerM2 =
+          lot.pricePerM2 ??
+          (lot.priceEur && lot.surfaceM2
+            ? Math.round(lot.priceEur / lot.surfaceM2)
+            : undefined);
+        const hasSurface = lot.surfaceM2 != null && lot.surfaceM2 > 0;
+        const hasPrice = lot.priceEur != null && lot.priceEur > 0;
+        return {
+          id: `imported_${prog.programId}_${idx}`,
+          programId: prog.programId,
+          source: "SeLogerNeuf" as const,
+          url: imported.sourceUrl || prog.url,
+          extractedAt: imported.importedAt,
+          programName: prog.programName,
+          developer: prog.developer,
+          city: prog.city,
+          postalCode: prog.postalCode,
+          geoPrecision: "city_only" as const,
+          typology: lot.typology!,
+          surfaceM2: lot.surfaceM2 ?? undefined,
+          priceEur: lot.priceEur ?? undefined,
+          pricePerM2,
+          parking: prog.parking ?? "Non communiqué",
+          deliveryDate: prog.deliveryDate,
+          reliabilityScore: hasSurface && hasPrice ? 85 : 50,
+          excludedFromStats: !hasSurface || !hasPrice,
+          exclusionReason: !hasSurface
+            ? "Surface non disponible dans le JSON importé"
+            : !hasPrice
+            ? "Prix non disponible dans le JSON importé"
+            : undefined,
+          availableCount: lot.availableCount,
+        };
+      });
+
+    if (listings.length === 0) return prog;
+    return {
+      ...prog,
+      availableUnits: imported.availableUnits ?? prog.availableUnits,
+      totalUnits: imported.totalUnits ?? prog.totalUnits,
+      listings,
+    };
+  });
+
+  return {
+    ...result,
+    programs: mergedPrograms,
+    listings: mergedPrograms.flatMap((p) => p.listings),
+  };
+}
 
 export default function Home() {
   const [result, setResult] = useState<NeufAnalysisResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [exportLoading, setExportLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [importedLots, setImportedLots] = useState<Record<string, ImportedProgramData>>({});
+
+  function handleImportLots(programId: string, data: ImportedProgramData) {
+    setImportedLots((prev) => ({ ...prev, [programId]: data }));
+  }
 
   async function handleAnalyze(input: NeufAnalysisInput) {
     setLoading(true);
     setError(null);
     setResult(null);
+    setImportedLots({});
 
     try {
       const res = await fetch("/api/neuf/analyze", {
@@ -42,10 +117,11 @@ export default function Home() {
     setExportLoading(true);
 
     try {
+      const merged = mergeImportedLotsIntoResult(result, importedLots);
       const res = await fetch("/api/neuf/export", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(result),
+        body: JSON.stringify(merged),
       });
 
       if (!res.ok) {
@@ -133,6 +209,8 @@ export default function Home() {
               result={result}
               onExport={handleExport}
               exportLoading={exportLoading}
+              importedLots={importedLots}
+              onImportLots={handleImportLots}
             />
           </section>
         )}

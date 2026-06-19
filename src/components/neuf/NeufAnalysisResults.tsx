@@ -80,6 +80,86 @@ function ProgramDebugTable({ infos }: { infos: ProgramDebugInfo[] }) {
   );
 }
 
+// ─── Composant : téléchargement debug JSON ───────────────────────────────────
+
+function DebugDownloader({ address }: { address: string }) {
+  const [loading, setLoading] = useState<"nextdata" | "programs" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function fetchDebugData() {
+    const res = await fetch("/api/neuf/debug", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ address, rawDebug: true }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status} — ${await res.text()}`);
+    return res.json() as Promise<{
+      meta: unknown;
+      nextData: unknown;
+      itemsPath: string | null;
+      itemsAnalysis: unknown[];
+      error?: string;
+    }>;
+  }
+
+  function downloadJson(data: unknown, filename: string) {
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function handleDownload(target: "nextdata" | "programs") {
+    setLoading(target);
+    setError(null);
+    try {
+      const data = await fetchDebugData();
+      if (target === "nextdata") {
+        downloadJson(data.nextData, "debug_nextdata.json");
+      } else {
+        downloadJson(
+          { meta: data.meta, itemsPath: data.itemsPath, itemsAnalysis: data.itemsAnalysis },
+          "debug_programs.json"
+        );
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(null);
+    }
+  }
+
+  return (
+    <div className="border border-purple-200 bg-purple-50 rounded-lg p-3">
+      <p className="text-xs font-semibold text-purple-800 mb-2">🔬 Export debug __NEXT_DATA__</p>
+      <div className="flex flex-wrap gap-2">
+        <button
+          onClick={() => handleDownload("nextdata")}
+          disabled={!!loading}
+          className="text-xs bg-purple-700 hover:bg-purple-800 disabled:bg-gray-400 text-white px-3 py-1.5 rounded transition-colors"
+        >
+          {loading === "nextdata" ? "Chargement…" : "⬇ debug_nextdata.json"}
+        </button>
+        <button
+          onClick={() => handleDownload("programs")}
+          disabled={!!loading}
+          className="text-xs bg-purple-700 hover:bg-purple-800 disabled:bg-gray-400 text-white px-3 py-1.5 rounded transition-colors"
+        >
+          {loading === "programs" ? "Chargement…" : "⬇ debug_programs.json"}
+        </button>
+      </div>
+      {error && <p className="mt-2 text-xs text-red-600">Erreur : {error}</p>}
+      <p className="mt-1.5 text-[10px] text-purple-600">
+        <strong>debug_nextdata.json</strong> = __NEXT_DATA__ brut complet ·{" "}
+        <strong>debug_programs.json</strong> = analyse par item (chemins JSON, clés, raisons rejet)
+      </p>
+    </div>
+  );
+}
+
 // ─── Composant : rapport de scraping ─────────────────────────────────────────
 
 const DIAG_CONFIG: Record<ScrapeDiagnosisType, { icon: string; title: string; color: string; border: string; titleColor: string; textColor: string }> = {
@@ -379,6 +459,9 @@ export default function NeufAnalysisResults({ result, onExport, exportLoading }:
       {result.scrapeReport && (
         <ScrapeReportPanel report={result.scrapeReport} defaultExpanded={result.programs.length === 0} />
       )}
+
+      {/* Export debug __NEXT_DATA__ */}
+      <DebugDownloader address={result.input.address} />
 
       {/* Warnings (autres) */}
       {result.warnings.filter((w) => !w.startsWith("⛔") && !w.startsWith("ℹ️")).length > 0 && (

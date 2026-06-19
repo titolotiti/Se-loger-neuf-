@@ -1,0 +1,39 @@
+{
+  "name": "se-loger-neuf-",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "repository": {
+    "type": "git",
+    "url": "http://local_proxy@127.0.0.1:35919/git/titolotiti/Se-loger-neuf-"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@tailwindcss/postcss": "^4.3.1",
+    "@types/node": "^26.0.0",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "autoprefixer": "^10.5.0",
+    "axios": "^1.18.0",
+    "cheerio": "^1.2.0",
+    "exceljs": "^4.4.0",
+    "next": "^14.2.35",
+    "node-html-parser": "^7.1.0",
+    "postcss": "^8.5.15",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tailwindcss": "^4.3.1",
+    "typescript": "^6.0.3"
+  },
+  "devDependencies": {
+    "@types/cheerio": "^0.22.35"
+  }
+}

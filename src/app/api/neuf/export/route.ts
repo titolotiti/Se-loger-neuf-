@@ -1,46 +1,33 @@
-import { NextRequest, NextResponse } from "next/server";
-import { exportToExcel } from "@/lib/neuf/exportExcel";
-import type { NeufAnalysisResult } from "@/types/neuf";
+import { NextRequest, NextResponse } from 'next/server';
+import type { NeufExportRequest } from '@/lib/neuf/types';
 
-export async function POST(req: NextRequest): Promise<NextResponse> {
-  let result: NeufAnalysisResult;
-
+export async function POST(req: NextRequest) {
   try {
-    result = await req.json();
-  } catch {
-    return NextResponse.json({ error: "Corps de requête invalide (JSON attendu)" }, { status: 400 });
-  }
+    const body: NeufExportRequest = await req.json();
 
-  if (!result?.geocodedAddress || !result?.programs) {
-    return NextResponse.json(
-      { error: "Données d'analyse manquantes ou invalides" },
-      { status: 422 }
-    );
-  }
+    if (!body.programmes || !Array.isArray(body.programmes) || body.programmes.length === 0) {
+      return NextResponse.json(
+        { error: 'Le champ "programmes" est requis et ne doit pas être vide.' },
+        { status: 400 }
+      );
+    }
 
-  try {
-    const buffer = await exportToExcel(result);
-
-    const city = result.geocodedAddress.city
-      .toLowerCase()
-      .replace(/[^a-z0-9]/g, "_")
-      .replace(/_+/g, "_");
-    const date = new Date().toISOString().slice(0, 10);
-    const filename = `seloger_neuf_${city}_${date}.xlsx`;
-
-    return new NextResponse(buffer as unknown as BodyInit, {
-      status: 200,
-      headers: {
-        "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "Content-Disposition": `attachment; filename="${filename}"`,
-        "Content-Length": buffer.length.toString(),
+    return NextResponse.json({
+      ok: true,
+      recu: {
+        titre: body.titre ?? null,
+        ville_principale: body.ville_principale ?? null,
+        nb_programmes: body.programmes.length,
+        programmes: body.programmes.map((p) => ({
+          nom: p.nom ?? p.programName ?? p.name ?? null,
+          ville: p.ville ?? p.city ?? null,
+          nb_logements: p.nb_logements ?? p.totalUnits ?? null,
+          nb_disponibles: p.nb_disponibles ?? p.availableUnits ?? null,
+          nb_lots: p.lots?.length ?? 0,
+        })),
       },
     });
-  } catch (err) {
-    console.error("[export] Erreur génération Excel:", err);
-    return NextResponse.json(
-      { error: "Erreur lors de la génération du fichier Excel" },
-      { status: 500 }
-    );
+  } catch {
+    return NextResponse.json({ error: 'JSON invalide.' }, { status: 400 });
   }
 }

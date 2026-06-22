@@ -29,19 +29,67 @@ function progLots(prog: NeufProgram, typo: NeufTypology): NeufListing[] {
   return prog.listings.filter(l => l.typology === typo && !l.isPlaceholderLot);
 }
 
+// ── Constantes de style ───────────────────────────────────────────────────────
+const C_NAV = "1F3864";   // marine foncé : en-têtes principaux, total général
+const C_BLU = "2E75B5";   // bleu moyen  : titres ville, sous-en-têtes Data
+const C_TOT = "BDD7EE";   // bleu clair  : lignes total ville
+const C_AVG = "E2EFDA";   // vert clair  : ligne moyenne Data
+const C_WHT = "FFFFFF";
+
+type StyleOpts = {
+  bg?:     string;
+  fc?:     string;
+  bold?:   boolean;
+  border?: boolean;
+  numFmt?: string;
+  wrap?:   boolean;
+  hAlign?: ExcelJS.Alignment["horizontal"];
+};
+
+function st(cell: ExcelJS.Cell, o: StyleOpts) {
+  if (o.bg)
+    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF" + o.bg } };
+  if (o.bold !== undefined || o.fc)
+    cell.font = { bold: o.bold ?? false, color: o.fc ? { argb: "FF" + o.fc } : undefined };
+  if (o.border)
+    cell.border = {
+      top:    { style: "thin" }, bottom: { style: "thin" },
+      left:   { style: "thin" }, right:  { style: "thin" },
+    };
+  if (o.numFmt) cell.numFmt = o.numFmt;
+  if (o.wrap || o.hAlign)
+    cell.alignment = {
+      ...(cell.alignment ?? {}),
+      wrapText:   o.wrap,
+      horizontal: o.hAlign,
+      vertical:   "middle",
+    };
+}
+
+function stRange(
+  ws: ExcelJS.Worksheet,
+  r1: number, r2: number,
+  c1: number, c2: number,
+  o: StyleOpts
+) {
+  for (let r = r1; r <= r2; r++)
+    for (let c = c1; c <= c2; c++)
+      st(ws.getCell(r, c), o);
+}
+
 // ── Layout lignes de l'onglet Data ───────────────────────────────────────────
 interface TypoRow {
-  labelRow:  number; // lettre a/b/c + nom typo
-  headerRow: number; // m² | prix | prix/m²
-  dataStart: number; // première ligne de données
-  avgRow:    number; // ligne AVERAGE
+  labelRow:  number;
+  headerRow: number;
+  dataStart: number;
+  avgRow:    number;
 }
 
 function computeTypoLayout(
   programs: NeufProgram[]
 ): Partial<Record<NeufTypology, TypoRow>> {
   const layout: Partial<Record<NeufTypology, TypoRow>> = {};
-  let row = 6; // zone en-tête = lignes 1-5
+  let row = 6;
 
   for (const typo of TYPOLOGIES) {
     const maxLots = Math.max(0, ...programs.map(p => progLots(p, typo).length));
@@ -52,24 +100,23 @@ function computeTypoLayout(
       dataStart: row + 2,
       avgRow:    row + 2 + maxLots,
     };
-    // label + header + données + avg + séparateur vide
     row += 3 + maxLots + 1;
   }
   return layout;
 }
 
 // ── Onglet Adresse ────────────────────────────────────────────────────────────
-// Structure : R1=en-têtes, puis pour chaque ville : titre ville + lignes programmes
 function buildAdresse(
   wb: ExcelJS.Workbook,
   programs: NeufProgram[]
 ): Map<string, number> {
   const ws = wb.addWorksheet("Adresse");
-  const rowMap = new Map<string, number>(); // programId → numéro de ligne
+  const rowMap = new Map<string, number>();
 
   ws.getCell(1, 1).value = "Adresse";
   ws.getCell(1, 2).value = "Nom";
   ws.getCell(1, 3).value = "Type";
+  stRange(ws, 1, 1, 1, 3, { bg: C_NAV, fc: C_WHT, bold: true, border: true });
 
   const cities = [...new Set(programs.map(p => p.city))];
   let globalIdx = 1;
@@ -78,8 +125,8 @@ function buildAdresse(
   for (const city of cities) {
     const cityProgs = programs.filter(p => p.city === city);
 
-    // Ligne titre ville (col A uniquement)
     ws.getCell(r, 1).value = city;
+    stRange(ws, r, r, 1, 3, { bg: C_BLU, fc: C_WHT, bold: true, border: true });
     r++;
 
     for (const prog of cityProgs) {
@@ -87,10 +134,11 @@ function buildAdresse(
       ws.getCell(r, 2).value = prog.programName;
       ws.getCell(r, 3).value = globalIdx++;
       rowMap.set(prog.programId, r);
+      stRange(ws, r, r, 1, 3, { border: true });
       r++;
     }
 
-    r++; // ligne vide entre villes
+    r++;
   }
 
   ws.getColumn(1).width = 52;
@@ -101,7 +149,6 @@ function buildAdresse(
 }
 
 // ── Onglet Data (matrice horizontale) ─────────────────────────────────────────
-// 6 colonnes par programme ; blocs de typologies empilés verticalement
 function buildData(
   wb: ExcelJS.Workbook,
   programs: NeufProgram[],
@@ -109,13 +156,14 @@ function buildData(
 ) {
   const ws = wb.addWorksheet("Data");
 
-  // R1 : titre
   ws.getCell(1, 3).value = "Calcul métrique";
+  st(ws.getCell(1, 3), { bg: C_NAV, fc: C_WHT, bold: true });
 
   // R4 : indices et noms des programmes
   for (let n = 0; n < programs.length; n++) {
     ws.getCell(4, idxCol(n)).value = n + 1;
-    ws.getCell(4, m2Col(n)).value = programs[n].programName;
+    ws.getCell(4, m2Col(n)).value  = programs[n].programName;
+    stRange(ws, 4, 4, idxCol(n), pm2Col(n), { bg: C_NAV, fc: C_WHT, bold: true, border: true });
   }
 
   // Blocs par typologie
@@ -124,17 +172,23 @@ function buildData(
     if (!tl) continue;
 
     for (let n = 0; n < programs.length; n++) {
-      const prog = programs[n];
-      const lots = progLots(prog, typo);
+      const prog  = programs[n];
+      const lots  = progLots(prog, typo);
+      const cFrom = idxCol(n);
+      const cTo   = pm2Col(n);
 
-      // Ligne label (lettre + nom)
+      // Ligne label
       ws.getCell(tl.labelRow, idxCol(n)).value = TYPO_LETTER[typo];
       ws.getCell(tl.labelRow, m2Col(n)).value  = TYPO_LABEL[typo];
+      stRange(ws, tl.labelRow, tl.labelRow, cFrom, cTo,
+        { bg: C_NAV, fc: C_WHT, bold: true, border: true });
 
       // Ligne en-têtes colonnes
       ws.getCell(tl.headerRow, m2Col(n)).value  = "m²";
       ws.getCell(tl.headerRow, prixCol(n)).value = "prix";
       ws.getCell(tl.headerRow, pm2Col(n)).value  = "prix/m²";
+      stRange(ws, tl.headerRow, tl.headerRow, cFrom, cTo,
+        { bg: C_BLU, fc: C_WHT, bold: true, border: true });
 
       // Lignes de données
       for (let i = 0; i < lots.length; i++) {
@@ -149,9 +203,14 @@ function buildData(
             formula: `+${cl(prixCol(n))}${row}/${cl(m2Col(n))}${row}`,
           };
         }
+
+        stRange(ws, row, row, cFrom, cTo, { border: true, bg: C_WHT });
+        st(ws.getCell(row, m2Col(n)),   { numFmt: '#,##0.# "m²"' });
+        st(ws.getCell(row, prixCol(n)), { numFmt: '#,##0 "€"' });
+        st(ws.getCell(row, pm2Col(n)),  { numFmt: '#,##0 "€/m²"' });
       }
 
-      // Ligne AVERAGE (si des données existent)
+      // Ligne AVERAGE
       if (lots.length > 0) {
         const dataEnd = tl.dataStart + lots.length - 1;
         ws.getCell(tl.avgRow, m2Col(n)).value = {
@@ -161,17 +220,15 @@ function buildData(
           formula: `AVERAGE(${cl(pm2Col(n))}${tl.dataStart}:${cl(pm2Col(n))}${dataEnd})`,
         };
       }
+      stRange(ws, tl.avgRow, tl.avgRow, cFrom, cTo,
+        { bg: C_AVG, bold: true, border: true });
+      st(ws.getCell(tl.avgRow, m2Col(n)),  { numFmt: '#,##0.# "m²"' });
+      st(ws.getCell(tl.avgRow, pm2Col(n)), { numFmt: '#,##0 "€/m²"' });
     }
   }
 }
 
 // ── Onglet Offre neuve {ville} ────────────────────────────────────────────────
-// Colonnes D-V alimentées par formules depuis Adresse et Data
-//
-// D=Nom   E=Promoteur   F=Adresse   G=Téléphone
-// H=Nb logements   I=Nb disponibles   J=% commer.   K=Livraison
-// L/M=T1  N/O=T2  P/Q=T3  R/S=T4  T/U=T5+  V=Prix moyen
-
 const SYNTH_TYPOS: [NeufTypology, number, number][] = [
   ["T1 / Studio", 12, 13],
   ["T2",          14, 15],
@@ -198,6 +255,7 @@ function buildSynthese(
 
   // R1 : titre
   ws.getCell(1, 3).value = `Analyse de l'offre neuve — ${result.geocodedAddress.label}`;
+  stRange(ws, 1, 1, 3, 22, { bg: C_NAV, fc: C_WHT, bold: true });
 
   // R5 : en-têtes colonnes
   const HDR: [number, string][] = [
@@ -221,11 +279,12 @@ function buildSynthese(
     ws.getCell(5, c).alignment = { wrapText: true, vertical: "middle", horizontal: "center" };
   }
   ws.getRow(5).height = 40;
+  stRange(ws, 5, 5, 4, 22, { bg: C_NAV, fc: C_WHT, bold: true, border: true });
 
   // Villes : principale en premier
-  const allCities      = [...new Set(programs.map(p => p.city))];
-  const mainCity       = result.geocodedAddress.city;
-  const orderedCities  = [mainCity, ...allCities.filter(c => c !== mainCity)];
+  const allCities     = [...new Set(programs.map(p => p.city))];
+  const mainCity      = result.geocodedAddress.city;
+  const orderedCities = [mainCity, ...allCities.filter(c => c !== mainCity)];
 
   const cityRanges: CityRange[] = [];
   let r = 7;
@@ -236,52 +295,45 @@ function buildSynthese(
 
     const titleRow = r;
     ws.getCell(r, 4).value = cityName;
-    ws.getCell(r, 4).font  = { bold: true };
+    stRange(ws, r, r, 4, 22, { bg: C_BLU, fc: C_WHT, bold: true, border: true });
     r++;
 
     const progRows: number[] = [];
 
     for (const prog of cityProgs) {
-      const n    = programs.indexOf(prog);
-      const adR  = adresseRowMap.get(prog.programId)!;
+      const n     = programs.indexOf(prog);
+      const adR   = adresseRowMap.get(prog.programId)!;
       const dispo = prog.availableUnitsDetected ?? prog.availableUnits ?? null;
 
-      // D : Nom (formule Adresse)
       ws.getCell(r, 4).value = { formula: `Adresse!B${adR}` };
-      // E : Promoteur
       ws.getCell(r, 5).value = prog.developer ?? "";
-      // F : Adresse (formule Adresse)
       ws.getCell(r, 6).value = { formula: `Adresse!A${adR}` };
-      // G : Téléphone — non disponible dans le modèle de données
-      // H : Nb logements
       if (prog.totalUnits != null) ws.getCell(r, 8).value = prog.totalUnits;
-      // I : Nb disponibles
-      if (dispo != null) ws.getCell(r, 9).value = dispo;
-      // J : % commercialisation
+      if (dispo != null)           ws.getCell(r, 9).value = dispo;
       ws.getCell(r, 10).value  = { formula: `IFERROR(1-(I${r}/H${r}),"")` };
       ws.getCell(r, 10).numFmt = "0%";
-      // K : Date livraison
-      ws.getCell(r, 11).value = prog.deliveryDate ?? prog.commercialStatus ?? "";
+      ws.getCell(r, 11).value  = prog.deliveryDate ?? prog.commercialStatus ?? "";
 
-      // L–U : surface + prix/m² par typologie (formules → Data)
       for (const [typo, surfC, prixC] of SYNTH_TYPOS) {
         const tl = layout[typo];
         if (!tl) continue;
         if (progLots(prog, typo).length > 0) {
-          ws.getCell(r, surfC).value = { formula: `Data!${cl(m2Col(n))}${tl.avgRow}` };
-          ws.getCell(r, prixC).value = { formula: `Data!${cl(pm2Col(n))}${tl.avgRow}` };
-          ws.getCell(r, prixC).numFmt = '#,##0 "€/m²"';
+          ws.getCell(r, surfC).value  = { formula: `Data!${cl(m2Col(n))}${tl.avgRow}` };
+          ws.getCell(r, prixC).value  = { formula: `Data!${cl(pm2Col(n))}${tl.avgRow}` };
           ws.getCell(r, surfC).numFmt = '#,##0.# "m²"';
+          ws.getCell(r, prixC).numFmt = '#,##0 "€/m²"';
         }
       }
 
-      // V : Prix moyen pondéré (surface × prix/m² par typo)
       ws.getCell(r, 22).value = {
         formula:
           `IFERROR((L${r}*M${r}+N${r}*O${r}+P${r}*Q${r}+R${r}*S${r}+T${r}*U${r})` +
           `/SUM(L${r},N${r},P${r},R${r},T${r}),"")`,
       };
       ws.getCell(r, 22).numFmt = '#,##0 "€/m²"';
+
+      // Bordures + fond blanc sur toute la ligne D-V (pas de trous visuels)
+      stRange(ws, r, r, 4, 22, { border: true, bg: C_WHT });
 
       progRows.push(r);
       r++;
@@ -293,7 +345,6 @@ function buildSynthese(
     const lastPR   = progRows[progRows.length - 1];
 
     ws.getCell(totalRow, 4).value = `Total ${cityName}`;
-    ws.getCell(totalRow, 4).font  = { bold: true };
     ws.getCell(totalRow, 8).value = { formula: `SUM(H${firstPR}:H${lastPR})` };
     ws.getCell(totalRow, 9).value = { formula: `SUM(I${firstPR}:I${lastPR})` };
     ws.getCell(totalRow, 10).value  = { formula: `IFERROR(I${totalRow}/H${totalRow},"")` };
@@ -312,17 +363,18 @@ function buildSynthese(
     ws.getCell(totalRow, 22).value  = { formula: `IFERROR(AVERAGE(V${titleRow}:V${lastPR}),"")` };
     ws.getCell(totalRow, 22).numFmt = '#,##0 "€/m²"';
 
+    stRange(ws, totalRow, totalRow, 4, 22, { bg: C_TOT, bold: true, border: true });
+
     cityRanges.push({ city: cityName, titleRow, progRows, totalRow });
-    r += 2; // vide avant prochaine ville
+    r += 2;
   }
 
   // ── Total général (si plusieurs villes) ─────────────────────────────────
   if (cityRanges.length > 1) {
-    const gtRow  = r;
-    const tRefs  = cityRanges.map(cr => cr.totalRow);
+    const gtRow = r;
+    const tRefs = cityRanges.map(cr => cr.totalRow);
 
     ws.getCell(gtRow, 4).value = "Total";
-    ws.getCell(gtRow, 4).font  = { bold: true };
     ws.getCell(gtRow, 8).value = { formula: tRefs.map(tr => `H${tr}`).join("+") };
     ws.getCell(gtRow, 9).value = { formula: tRefs.map(tr => `I${tr}`).join("+") };
     ws.getCell(gtRow, 10).value  = { formula: `IFERROR(I${gtRow}/H${gtRow},"")` };
@@ -343,6 +395,8 @@ function buildSynthese(
     };
     ws.getCell(gtRow, 22).numFmt = '#,##0 "€/m²"';
 
+    stRange(ws, gtRow, gtRow, 4, 22, { bg: C_NAV, fc: C_WHT, bold: true, border: true });
+
     r += 2;
   }
 
@@ -353,7 +407,7 @@ function buildSynthese(
     const lr = Math.max(...allProgRows);
 
     ws.getCell(r, 11).value = "Prix Moyen";
-    ws.getCell(r, 11).font  = { bold: true };
+    st(ws.getCell(r, 11), { bold: true });
     ws.getCell(r, 12).value = {
       formula:
         `IFERROR(` +
@@ -375,15 +429,15 @@ function buildSynthese(
   // ── Sous-tableaux High / Low par ville ───────────────────────────────────
   for (const cr of cityRanges) {
     ws.getCell(r, 4).value = cr.city;
-    ws.getCell(r, 4).font  = { bold: true };
+    stRange(ws, r, r, 4, 10, { bg: C_BLU, fc: C_WHT, bold: true, border: true });
     r++;
 
-    // En-têtes sous-tableau
     const subHdr: [number, string][] = [
       [4, "Typologie"], [6, "High Price"], [7, "Low Price"],
       [8, "Closing price"], [9, "Average"], [10, "Min"],
     ];
     for (const [c, v] of subHdr) ws.getCell(r, c).value = v;
+    stRange(ws, r, r, 4, 10, { bg: C_NAV, fc: C_WHT, bold: true, border: true });
     r++;
 
     for (const [typo, surfC, prixC] of SYNTH_TYPOS) {
@@ -399,6 +453,7 @@ function buildSynthese(
       ws.getCell(r, 8).value  = { formula: `IFERROR(${sL}${cr.totalRow},"")` };
       ws.getCell(r, 9).value  = { formula: `IFERROR(${pL}${cr.totalRow},"")` };
       ws.getCell(r, 10).value = { formula: `IFERROR(MIN(${range}),"")` };
+      stRange(ws, r, r, 4, 10, { border: true, bg: C_WHT });
       r++;
     }
 

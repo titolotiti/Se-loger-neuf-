@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
     const date = new Date().toISOString().slice(0, 10);
     const filename = `seloger_neuf_${city}_${date}.xlsx`;
 
-    return new NextResponse(buffer, {
+    return new NextResponse(new Uint8Array(buffer), {
       status: 200,
       headers: {
         'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',

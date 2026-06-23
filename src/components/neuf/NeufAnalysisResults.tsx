@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import LotImportModal from "./LotImportModal";
 import type {
   NeufAnalysisResult,
   NeufProgram,
@@ -10,35 +9,6 @@ import type {
   ScrapeDiagnosisType,
   ProgramDebugInfo,
 } from "@/types/neuf";
-
-type ImportedLot = {
-  typology: NeufTypology | null;
-  rawTypology?: string;
-  surfaceM2?: number | null;
-  priceEur?: number | null;
-  pricePerM2?: number | null;
-  availableCount: number;
-  debug?: {
-    rawBlockText?: string;
-    parsingWarnings?: string[];
-  } & Record<string, unknown>;
-};
-
-type ImportedProgramData = {
-  bookmarkletVersion?: string;
-  programName: string;
-  pageUrl?: string;
-  sourceUrl?: string;
-  totalUnits?: number | null;
-  availableUnits?: number | null;
-  bodyTextSample?: string;
-  rawTypologyBlocks?: unknown[];
-  lots: ImportedLot[];
-  importedAt?: string;
-  developer?: string;
-  city?: string;
-  address?: string;
-};
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -75,33 +45,10 @@ function KpiCard({
 
 // ── Programme card ────────────────────────────────────────────────────────────
 
-function ProgramCard({
-  prog,
-  imported,
-  onImport,
-}: {
-  prog: NeufProgram;
-  imported?: ImportedProgramData;
-  onImport: () => void;
-}) {
+function ProgramCard({ prog }: { prog: NeufProgram }) {
   const available = prog.availableUnitsDetected ?? prog.availableUnits;
   const delivery = prog.deliveryDate ?? prog.commercialStatus;
   const pm2 = avgPriceM2ForProgram(prog);
-
-  const importedPm2: number | null = imported
-    ? (() => {
-        const vals = imported.lots.flatMap((l) => {
-          if (!l.surfaceM2 || !l.priceEur) return [];
-          const p = l.pricePerM2 ?? Math.round(l.priceEur / l.surfaceM2);
-          return Array<number>(l.availableCount ?? 1).fill(p);
-        });
-        return vals.length > 0 ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
-      })()
-    : null;
-
-  const importedTotalLots = imported
-    ? imported.lots.reduce((s, l) => s + (l.availableCount ?? 0), 0)
-    : 0;
 
   const showAddress =
     prog.address && !/^\d{1,3}$/.test(prog.address.trim()) && prog.address.trim().length > 2;
@@ -154,7 +101,7 @@ function ProgramCard({
       {/* Typologies */}
       {prog.typologies && prog.typologies.length > 0 && (
         <div className="flex flex-wrap gap-1.5 mb-3">
-          {prog.typologies.map((t) => (
+          {prog.typologies.map((t: NeufTypology) => (
             <span
               key={t}
               className="text-[11px] font-medium bg-[#EFF6FF] text-[#2563EB] px-2 py-0.5 rounded-full"
@@ -171,7 +118,7 @@ function ProgramCard({
       )}
 
       {/* Prix */}
-      {(prog.priceFromEur != null || pm2 != null || importedPm2 != null) && (
+      {(prog.priceFromEur != null || pm2 != null) && (
         <div className="flex flex-wrap gap-4 text-sm mb-4">
           {prog.priceFromEur != null && (
             <p className="text-[#6B7280] text-xs">
@@ -181,43 +128,28 @@ function ProgramCard({
               </span>
             </p>
           )}
-          {(importedPm2 != null || pm2 != null) && (
+          {pm2 != null && (
             <p className="text-[#6B7280] text-xs">
               Moy.{" "}
-              <span className="font-semibold text-[#111827]">
-                {fmt(importedPm2 ?? pm2)} €/m²
-              </span>
+              <span className="font-semibold text-[#111827]">{fmt(pm2)} €/m²</span>
             </p>
           )}
         </div>
       )}
 
-      {/* Lots importés */}
-      {imported && (
-        <div className="bg-[#F0FDF4] border border-[#BBF7D0] rounded-xl px-3 py-2.5 mb-4 flex items-center gap-2">
-          <span className="text-green-500 text-sm">✓</span>
-          <span className="text-xs text-green-800 font-medium">
-            {imported.lots.length} type(s) · {importedTotalLots} lot(s) importé(s) via bookmarklet
-          </span>
-        </div>
-      )}
-
-      {/* Actions */}
-      <div className="flex items-center gap-3 flex-wrap">
-        <button
-          onClick={onImport}
-          className="text-xs font-semibold bg-[#EFF6FF] hover:bg-[#DBEAFE] text-[#2563EB] px-3 py-1.5 rounded-lg transition-colors"
-        >
-          {imported ? "Ré-importer lots" : "↓ Importer lots"}
-        </button>
+      {/* CTA SeLoger */}
+      <div className="flex flex-col gap-1.5">
         <a
           href={prog.url}
           target="_blank"
           rel="noopener noreferrer"
-          className="text-xs text-[#6B7280] hover:text-[#111827] transition-colors"
+          className="inline-flex items-center justify-center gap-1.5 text-sm font-semibold bg-[#2563EB] hover:bg-[#1D4ED8] text-white px-4 py-2.5 rounded-xl transition-colors"
         >
-          Voir sur SeLoger →
+          Ouvrir sur SeLoger →
         </a>
+        <p className="text-[11px] text-[#9CA3AF] text-center leading-snug">
+          Puis cliquez sur le favori bookmarklet pour envoyer les lots dans le collecteur.
+        </p>
       </div>
     </div>
   );
@@ -530,153 +462,15 @@ function ScrapeReportPanel({
   );
 }
 
-// ── Debug: diagnostic import ──────────────────────────────────────────────────
-
-function ImportDiagnosticPanel({
-  importedLots,
-}: {
-  importedLots: Record<string, ImportedProgramData>;
-}) {
-  const [expandedProg, setExpandedProg] = useState<string | null>(null);
-  const [expandedBlock, setExpandedBlock] = useState<string | null>(null);
-  const entries = Object.entries(importedLots);
-
-  return (
-    <div className="border border-[#E5E7EB] rounded-lg p-3">
-      <p className="text-xs font-semibold text-[#374151] mb-2">
-        Diagnostic import — {entries.length} programme(s)
-      </p>
-      {entries.map(([progId, data]) => {
-        const isOpen = expandedProg === progId;
-        const totalLots = data.lots.reduce((s, l) => s + (l.availableCount ?? 0), 0);
-        return (
-          <div key={progId} className="border border-[#E5E7EB] rounded-lg bg-white overflow-hidden mb-2">
-            <button
-              onClick={() => setExpandedProg(isOpen ? null : progId)}
-              className="w-full text-left px-3 py-2 flex items-center justify-between hover:bg-[#F8FAFC] text-xs"
-            >
-              <span className="font-medium text-[#111827]">{data.programName}</span>
-              <span className="flex items-center gap-2 text-[#6B7280]">
-                {data.bookmarkletVersion && (
-                  <span className="bg-[#F1F5F9] px-1.5 py-0.5 rounded font-mono text-[10px]">
-                    {data.bookmarkletVersion}
-                  </span>
-                )}
-                <span>{data.lots.length} typo · {totalLots} lots</span>
-                <span>{isOpen ? "▲" : "▼"}</span>
-              </span>
-            </button>
-            {isOpen && (
-              <div className="border-t border-[#E5E7EB] p-2 overflow-x-auto">
-                <table className="text-xs w-full border-collapse">
-                  <thead>
-                    <tr className="bg-[#F1F5F9] text-[#6B7280]">
-                      <th className="px-2 py-1 text-left">Brut</th>
-                      <th className="px-2 py-1 text-left">Typo</th>
-                      <th className="px-2 py-1 text-right">Surface</th>
-                      <th className="px-2 py-1 text-right">Prix</th>
-                      <th className="px-2 py-1 text-right">€/m²</th>
-                      <th className="px-2 py-1 text-center">Dispo</th>
-                      <th className="px-2 py-1 text-center">Bloc</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.lots.map((lot, i) => {
-                      const blockKey = `${progId}-${i}`;
-                      const isBlockOpen = expandedBlock === blockKey;
-                      const debug = lot.debug;
-                      const hasWarn = debug?.parsingWarnings && debug.parsingWarnings.length > 0;
-                      return (
-                        <>
-                          <tr
-                            key={i}
-                            className={`border-t border-[#E5E7EB] ${lot.typology ? "" : "bg-red-50"}`}
-                          >
-                            <td className="px-2 py-1 font-mono text-[#9CA3AF]">
-                              {lot.rawTypology || "—"}
-                            </td>
-                            <td className="px-2 py-1 font-semibold">
-                              {lot.typology ?? <span className="text-red-500">Non reconnue</span>}
-                            </td>
-                            <td className="px-2 py-1 text-right">
-                              {lot.surfaceM2 != null ? `${lot.surfaceM2} m²` : <span className="text-red-400">—</span>}
-                            </td>
-                            <td className="px-2 py-1 text-right">
-                              {lot.priceEur != null ? `${lot.priceEur.toLocaleString("fr-FR")} €` : <span className="text-red-400">—</span>}
-                            </td>
-                            <td className="px-2 py-1 text-right">
-                              {lot.pricePerM2 != null ? `${lot.pricePerM2.toLocaleString("fr-FR")} €/m²` : "—"}
-                            </td>
-                            <td className="px-2 py-1 text-center">{lot.availableCount}</td>
-                            <td className="px-2 py-1 text-center">
-                              {debug?.rawBlockText ? (
-                                <button
-                                  onClick={() => setExpandedBlock(isBlockOpen ? null : blockKey)}
-                                  className="text-[10px] text-[#2563EB] underline"
-                                >
-                                  {isBlockOpen ? "▲" : "▼"}
-                                </button>
-                              ) : "—"}
-                            </td>
-                          </tr>
-                          {hasWarn && (
-                            <tr key={`w-${i}`} className="bg-amber-50">
-                              <td colSpan={7} className="px-2 pb-1 pt-0">
-                                <p className="text-[10px] text-amber-700">
-                                  ⚠ {(debug?.parsingWarnings ?? []).join(" · ")}
-                                </p>
-                              </td>
-                            </tr>
-                          )}
-                          {isBlockOpen && debug?.rawBlockText && (
-                            <tr key={`b-${i}`}>
-                              <td colSpan={7} className="p-0">
-                                <pre className="bg-[#111827] text-green-300 text-[10px] font-mono whitespace-pre-wrap break-all p-3 max-h-48 overflow-y-auto leading-relaxed">
-                                  {debug.rawBlockText}
-                                </pre>
-                              </td>
-                            </tr>
-                          )}
-                        </>
-                      );
-                    })}
-                  </tbody>
-                </table>
-                {data.bodyTextSample && (
-                  <details className="mt-2 text-[11px] text-[#6B7280]">
-                    <summary className="cursor-pointer font-medium">bodyTextSample</summary>
-                    <pre className="mt-1 bg-[#111827] text-green-300 rounded p-2 text-[10px] font-mono whitespace-pre-wrap break-all max-h-40 overflow-y-auto leading-relaxed">
-                      {data.bodyTextSample}
-                    </pre>
-                  </details>
-                )}
-              </div>
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
 // ── Composant principal ───────────────────────────────────────────────────────
 
 type Props = {
   result: NeufAnalysisResult;
   onExport: () => void;
   exportLoading: boolean;
-  importedLots: Record<string, ImportedProgramData>;
-  onImportLots: (programId: string, data: ImportedProgramData) => void;
 };
 
-export default function NeufAnalysisResults({
-  result,
-  onExport,
-  exportLoading,
-  importedLots,
-  onImportLots,
-}: Props) {
-  const [activeProgramId, setActiveProgramId] = useState<string | null>(null);
+export default function NeufAnalysisResults({ result, onExport, exportLoading }: Props) {
   const [showDebug, setShowDebug] = useState(false);
   const [showExcluded, setShowExcluded] = useState(false);
 
@@ -692,35 +486,11 @@ export default function NeufAnalysisResults({
   const isBlocked =
     result.scrapeReport?.diagnosisType != null && result.programs.length === 0;
 
-  // KPIs
-  const totalImportedLots = Object.values(importedLots).reduce(
-    (sum, d) => sum + d.lots.reduce((s, l) => s + (l.availableCount ?? 0), 0),
-    0
-  );
-  const importedPricesM2 = Object.values(importedLots).flatMap((d) =>
-    d.lots.flatMap((l) => {
-      if (!l.surfaceM2 || !l.priceEur) return [];
-      const pm2 = l.pricePerM2 ?? Math.round(l.priceEur / l.surfaceM2);
-      return Array<number>(l.availableCount).fill(pm2);
-    })
-  );
-  const avgPm2Imported =
-    importedPricesM2.length > 0
-      ? importedPricesM2.reduce((a, b) => a + b, 0) / importedPricesM2.length
-      : null;
-
   const includedWithPm2 = included.filter((l) => l.pricePerM2 != null);
-  const avgPm2Api =
+  const avgPm2 =
     includedWithPm2.length > 0
       ? includedWithPm2.reduce((a, l) => a + l.pricePerM2!, 0) / includedWithPm2.length
       : null;
-
-  const displayAvgPm2 = avgPm2Imported ?? avgPm2Api;
-  const displayLots = totalImportedLots > 0 ? totalImportedLots : included.length;
-
-  const activeProgram = activeProgramId
-    ? result.programs.find((p) => p.programId === activeProgramId) ?? null
-    : null;
 
   return (
     <div className="space-y-6">
@@ -768,7 +538,7 @@ export default function NeufAnalysisResults({
             <a href="/bookmarklet" className="underline">
               bookmarklet
             </a>{" "}
-            sur chaque page programme pour importer les données.
+            sur chaque page programme pour importer les données dans le collecteur.
           </p>
         </div>
       )}
@@ -780,33 +550,21 @@ export default function NeufAnalysisResults({
           value={result.programs.length}
           sub={
             result.programs.filter(
-              (p) =>
-                importedLots[p.programId] ||
-                (p.availableUnitsDetected ?? p.availableUnits ?? 0) > 0
+              (p) => (p.availableUnitsDetected ?? p.availableUnits ?? 0) > 0
             ).length > 0
-              ? `${result.programs.filter((p) => importedLots[p.programId] || (p.availableUnitsDetected ?? p.availableUnits ?? 0) > 0).length} avec lots`
+              ? `${result.programs.filter((p) => (p.availableUnitsDetected ?? p.availableUnits ?? 0) > 0).length} avec lots`
               : undefined
           }
         />
         <KpiCard
           label="Lots disponibles"
-          value={displayLots > 0 ? displayLots : "—"}
+          value={included.length > 0 ? included.length : "—"}
         />
         <KpiCard
           label="Prix/m² moyen"
-          value={displayAvgPm2 != null ? `${fmt(displayAvgPm2)} €/m²` : "—"}
+          value={avgPm2 != null ? `${fmt(avgPm2)} €/m²` : "—"}
         />
       </div>
-
-      {/* Modal import */}
-      {activeProgram && (
-        <LotImportModal
-          programName={activeProgram.programName}
-          programUrl={activeProgram.url}
-          onImport={(data) => onImportLots(activeProgram.programId, data)}
-          onClose={() => setActiveProgramId(null)}
-        />
-      )}
 
       {/* Cartes programmes */}
       {result.programs.length > 0 ? (
@@ -817,12 +575,7 @@ export default function NeufAnalysisResults({
           </p>
           <div className="grid gap-3">
             {result.programs.map((prog) => (
-              <ProgramCard
-                key={prog.programId}
-                prog={prog}
-                imported={importedLots[prog.programId]}
-                onImport={() => setActiveProgramId(prog.programId)}
-              />
+              <ProgramCard key={prog.programId} prog={prog} />
             ))}
           </div>
         </div>
@@ -881,9 +634,6 @@ export default function NeufAnalysisResults({
               />
             )}
             <DebugDownloader address={result.input.address} />
-            {Object.keys(importedLots).length > 0 && (
-              <ImportDiagnosticPanel importedLots={importedLots} />
-            )}
             {excluded.length > 0 && (
               <div>
                 <button

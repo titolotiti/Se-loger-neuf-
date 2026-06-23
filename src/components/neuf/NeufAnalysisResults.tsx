@@ -623,7 +623,7 @@ function ImportDiagnosticPanel({
                             <tr key={`w-${i}`} className="bg-amber-50">
                               <td colSpan={7} className="px-2 pb-1 pt-0">
                                 <p className="text-[10px] text-amber-700">
-                                  ⚠ {debug!.parsingWarnings.join(" · ")}
+                                  ⚠ {(debug?.parsingWarnings ?? []).join(" · ")}
                                 </p>
                               </td>
                             </tr>

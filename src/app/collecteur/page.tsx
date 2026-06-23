@@ -14,11 +14,8 @@ type ImportedLot = {
   surfaceM2?: number | null;
   priceEur?: number | null;
   pricePerM2?: number | null;
-  availableCount: number;
-  debug?: {
-    rawBlockText?: string;
-    parsingWarnings?: string[];
-  } & Record<string, unknown>;
+  availableCount?: number | null;
+  debug?: unknown;
 };
 
 type ImportedProgramData = {
@@ -30,7 +27,7 @@ type ImportedProgramData = {
   availableUnits?: number | null;
   bodyTextSample?: string;
   rawTypologyBlocks?: unknown[];
-  lots: ImportedLot[];
+  lots?: ImportedLot[];
   importedAt?: string;
   developer?: string;
   city?: string;
@@ -54,7 +51,7 @@ function buildAnalysisResult(programs: ImportedProgramData[]): NeufAnalysisResul
     const listings: NeufListing[] = (prog.lots ?? [])
       .filter(
         (lot): lot is ImportedLot & { typology: NonNullable<ImportedLot["typology"]> } =>
-          lot.typology !== null
+          lot.typology != null
       )
       .map((lot, li) => {
         const pricePerM2 =
@@ -338,7 +335,8 @@ export default function CollecteurPage() {
               const pm2vals = validLots.flatMap((l) => {
                 if (!l.surfaceM2 || !l.priceEur) return [];
                 const p = l.pricePerM2 ?? Math.round(l.priceEur / l.surfaceM2);
-                return Array<number>(l.availableCount).fill(p);
+                const count = Math.max(1, l.availableCount ?? 1);
+                return Array<number>(count).fill(p);
               });
               const avgPm2 =
                 pm2vals.length > 0

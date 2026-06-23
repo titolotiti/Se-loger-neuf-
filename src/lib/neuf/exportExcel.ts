@@ -1,8 +1,6 @@
 import ExcelJS from "exceljs";
 import type { NeufAnalysisResult, NeufProgram, NeufListing, NeufTypology } from "@/types/neuf";
 
-// ── Typologies ────────────────────────────────────────────────────────────────
-import type { NeufAnalysisResult, NeufProgram, NeufListing, NeufTypology } from "@/types/neuf";
 
 // ── Typologies ────────────────────────────────────────────────────────────────
 const TYPOLOGIES: NeufTypology[] = ["T1 / Studio", "T2", "T3", "T4", "T5+"];

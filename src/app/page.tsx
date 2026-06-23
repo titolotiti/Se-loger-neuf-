@@ -1,14 +1,46 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import NeufAddressForm from "@/components/neuf/NeufAddressForm";
 import NeufAnalysisResults from "@/components/neuf/NeufAnalysisResults";
 import type {
   NeufAnalysisInput,
   NeufAnalysisResult,
   NeufListing,
-  ImportedProgramData,
+  NeufTypology,
 } from "@/types/neuf";
+
+type ImportedLot = {
+  typology: NeufTypology | null;
+  rawTypology?: string;
+  surfaceM2?: number | null;
+  priceEur?: number | null;
+  pricePerM2?: number | null;
+  availableCount: number;
+  debug?: {
+    rawBlockText?: string;
+    parsingWarnings?: string[];
+  } & Record<string, unknown>;
+};
+
+type ImportedProgramData = {
+  bookmarkletVersion?: string;
+  programName: string;
+  pageUrl?: string;
+  sourceUrl?: string;
+  totalUnits?: number | null;
+  availableUnits?: number | null;
+  bodyTextSample?: string;
+  rawTypologyBlocks?: unknown[];
+  lots: ImportedLot[];
+  importedAt?: string;
+  developer?: string;
+  city?: string;
+  address?: string;
+};
+
+
+const LS_KEY = "seloger_neuf_collected_programs";
 
 function mergeImportedLotsIntoResult(
   result: NeufAnalysisResult,
@@ -35,7 +67,7 @@ function mergeImportedLotsIntoResult(
           programId: prog.programId,
           source: "SeLogerNeuf" as const,
           url: imported.sourceUrl || prog.url,
-          extractedAt: imported.importedAt,
+          extractedAt: imported.importedAt ?? new Date().toISOString(),
           programName: prog.programName,
           developer: prog.developer,
           city: prog.city,
@@ -54,7 +86,7 @@ function mergeImportedLotsIntoResult(
             : !hasPrice
             ? "Prix non disponible dans le JSON importé"
             : undefined,
-          availableCount: lot.availableCount,
+          availableCount: lot.availableCount ?? undefined,
         };
       });
 
@@ -80,6 +112,22 @@ export default function Home() {
   const [exportLoading, setExportLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [importedLots, setImportedLots] = useState<Record<string, ImportedProgramData>>({});
+  const [collectedCount, setCollectedCount] = useState(0);
+
+  useEffect(() => {
+    function updateCount() {
+      try {
+        const raw = localStorage.getItem(LS_KEY);
+        const list = raw ? (JSON.parse(raw) as unknown[]) : [];
+        setCollectedCount(Array.isArray(list) ? list.length : 0);
+      } catch {
+        setCollectedCount(0);
+      }
+    }
+    updateCount();
+    window.addEventListener("storage", updateCount);
+    return () => window.removeEventListener("storage", updateCount);
+  }, []);
 
   function handleImportLots(programId: string, data: ImportedProgramData) {
     setImportedLots((prev) => ({ ...prev, [programId]: data }));
@@ -90,20 +138,17 @@ export default function Home() {
     setError(null);
     setResult(null);
     setImportedLots({});
-
     try {
       const res = await fetch("/api/neuf/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(input),
       });
-
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        throw new Error(data?.error ?? `Erreur serveur (${res.status})`);
+        throw new Error((data as { error?: string }).error ?? `Erreur serveur (${res.status})`);
       }
-
-      const data: NeufAnalysisResult = await res.json();
+      const data = (await res.json()) as NeufAnalysisResult;
       setResult(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Une erreur est survenue");
@@ -115,7 +160,6 @@ export default function Home() {
   async function handleExport() {
     if (!result) return;
     setExportLoading(true);
-
     try {
       const merged = mergeImportedLotsIntoResult(result, importedLots);
       const res = await fetch("/api/neuf/export", {
@@ -123,19 +167,14 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(merged),
       });
-
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        throw new Error(data?.error ?? `Erreur export (${res.status})`);
+        throw new Error((data as { error?: string }).error ?? `Erreur export (${res.status})`);
       }
-
       const blob = await res.blob();
-      const city = result.geocodedAddress.city
-        .toLowerCase()
-        .replace(/[^a-z0-9]/g, "_");
+      const city = result.geocodedAddress.city.toLowerCase().replace(/[^a-z0-9]/g, "_");
       const date = new Date().toISOString().slice(0, 10);
       const filename = `seloger_neuf_${city}_${date}.xlsx`;
-
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
@@ -152,39 +191,58 @@ export default function Home() {
   }
 
   return (
-    <main className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-blue-900 text-white shadow-lg">
-        <div className="max-w-5xl mx-auto px-4 py-5 flex items-center gap-3">
-          <div className="bg-blue-700 rounded-lg p-2">
-            <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"
-              />
-            </svg>
+    <div className="min-h-screen bg-[#F7F8FA]">
+      {/* ── Header ── */}
+      <header className="bg-[#0F172A] text-white sticky top-0 z-40 shadow-sm">
+        <div className="max-w-5xl mx-auto px-4 py-3.5 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-2">
+            <span className="font-bold text-base tracking-tight">Neuf Analyzer</span>
+            <span className="hidden sm:inline text-slate-500 text-xs">· SeLoger Neuf</span>
           </div>
-          <div>
-            <h1 className="text-xl font-bold tracking-tight">Analyse Offre Neuve</h1>
-            <p className="text-blue-300 text-xs">Source exclusive : SeLoger Neuf</p>
-          </div>
+          <nav className="flex items-center gap-2">
+            <a
+              href="/collecteur"
+              className="flex items-center gap-1.5 text-xs font-medium text-slate-300 hover:text-white bg-white/5 hover:bg-white/10 px-3 py-1.5 rounded-lg transition-colors"
+            >
+              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                  d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8l1 12a2 2 0 002 2h8a2 2 0 002-2L19 8" />
+              </svg>
+              <span>Collecteur</span>
+              {collectedCount > 0 && (
+                <span className="bg-[#2563EB] text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center leading-none">
+                  {collectedCount}
+                </span>
+              )}
+            </a>
+            <a
+              href="/bookmarklet"
+              className="text-xs font-medium text-slate-400 hover:text-white px-3 py-1.5 rounded-lg hover:bg-white/5 transition-colors"
+            >
+              ★ Bookmarklet
+            </a>
+          </nav>
         </div>
       </header>
 
-      <div className="max-w-5xl mx-auto px-4 py-8 space-y-8">
-        {/* Formulaire */}
-        <section>
-          <h2 className="text-base font-semibold text-gray-700 mb-3">
-            Saisir une adresse à analyser
-          </h2>
-          <NeufAddressForm onSubmit={handleAnalyze} loading={loading} />
-        </section>
+      {/* ── Body ── */}
+      <main className="max-w-5xl mx-auto px-4 py-8 space-y-8">
+        {/* Hero */}
+        <div className="text-center pb-2">
+          <h1 className="text-2xl font-bold text-[#111827]">Analyse de l'offre neuve</h1>
+          <p className="text-sm text-[#6B7280] mt-1">
+            Saisissez une adresse pour analyser les programmes immobiliers neufs à proximité.
+          </p>
+        </div>
 
-        {/* Erreur */}
+        {/* Form card */}
+        <div className="bg-white border border-[#E5E7EB] rounded-2xl p-6 shadow-sm">
+          <NeufAddressForm onSubmit={handleAnalyze} loading={loading} />
+        </div>
+
+        {/* Error */}
         {error && (
-          <div className="bg-red-50 border border-red-300 rounded-lg p-4 text-red-700 text-sm">
+          <div className="bg-[#FEF2F2] border border-red-200 rounded-xl p-4 text-sm text-red-800">
             <strong>Erreur :</strong> {error}
           </div>
         )}
@@ -192,35 +250,29 @@ export default function Home() {
         {/* Spinner */}
         {loading && (
           <div className="flex flex-col items-center justify-center py-16 gap-4">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-700" />
-            <p className="text-gray-500 text-sm">
+            <div className="animate-spin rounded-full h-10 w-10 border-2 border-[#2563EB] border-t-transparent" />
+            <p className="text-sm text-[#6B7280]">
               Recherche des programmes neufs sur SeLoger Neuf…
-            </p>
-            <p className="text-gray-400 text-xs">
-              Cette opération peut prendre quelques secondes.
             </p>
           </div>
         )}
 
-        {/* Résultats */}
+        {/* Results */}
         {result && !loading && (
-          <section>
-            <NeufAnalysisResults
-              result={result}
-              onExport={handleExport}
-              exportLoading={exportLoading}
-              importedLots={importedLots}
-              onImportLots={handleImportLots}
-            />
-          </section>
+          <NeufAnalysisResults
+            result={result}
+            onExport={handleExport}
+            exportLoading={exportLoading}
+            importedLots={importedLots}
+            onImportLots={handleImportLots}
+          />
         )}
-      </div>
+      </main>
 
-      {/* Footer */}
-      <footer className="border-t border-gray-200 mt-16 py-6 text-center text-xs text-gray-400">
-        Outil d'analyse — Source exclusive SeLoger Neuf — Prix de commercialisation affichés,
-        non vérifiés, à vérifier avant toute utilisation.
+      {/* ── Footer ── */}
+      <footer className="border-t border-[#E5E7EB] mt-16 py-5 text-center text-xs text-[#9CA3AF]">
+        Source exclusive SeLoger Neuf · Prix de commercialisation affichés, non vérifiés
       </footer>
-    </main>
+    </div>
   );
 }

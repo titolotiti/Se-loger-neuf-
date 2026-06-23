@@ -64,7 +64,7 @@ function buildAnalysisResult(programs: ImportedProgramData[]): NeufAnalysisResul
           programId,
           source: "SeLogerNeuf" as const,
           url: sourceUrl,
-          extractedAt: prog.importedAt,
+          extractedAt: prog.importedAt ?? new Date().toISOString(),
           programName: prog.programName,
           city,
           geoPrecision: "unknown" as const,

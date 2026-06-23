@@ -13,14 +13,9 @@ export default function BookmarkletPage() {
     const url = origin + "/api/neuf/collect";
     setCollectUrl(url);
 
-    fetch("/selogerneuf-bookmarklet-collect.js")
-      .then((r) => r.text())
-      .then((code) => {
-        const filled = code.replace("'__COLLECT_URL__'", JSON.stringify(url));
-        setHref("javascript:" + encodeURIComponent(filled));
-        setReady(true);
-      })
-      .catch(() => setReady(true));
+    const loader = `javascript:(()=>{const s=document.createElement("script");s.src="${origin}/api/neuf/bookmarklet?v="+Date.now();document.body.appendChild(s);})();`;
+    setHref(loader);
+    setReady(true);
   }, []);
 
   async function copyUrl() {
@@ -32,168 +27,160 @@ export default function BookmarkletPage() {
   }
 
   return (
-    <main className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-[#F7F8FA]">
       {/* Header */}
-      <header className="bg-blue-900 text-white shadow-lg">
-        <div className="max-w-3xl mx-auto px-4 py-5 flex items-center justify-between gap-4">
+      <header className="bg-[#0F172A] text-white sticky top-0 z-40 shadow-sm">
+        <div className="max-w-3xl mx-auto px-4 py-3.5 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="bg-blue-700 rounded-lg p-2">
-              <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                  d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
-              </svg>
-            </div>
-            <div>
-              <h1 className="text-xl font-bold tracking-tight">Bookmarklet SeLoger Neuf</h1>
-              <p className="text-blue-300 text-xs">Collecteur automatique — sans installation</p>
-            </div>
-          </div>
-          <div className="flex gap-3 text-sm">
-            <a href="/collecteur" className="text-blue-200 hover:text-white underline">
-              Mes programmes →
+            <a href="/" className="text-slate-400 hover:text-white text-sm transition-colors">
+              ← Accueil
             </a>
-            <a href="/" className="text-blue-200 hover:text-white underline">
-              Analyse →
-            </a>
+            <span className="text-slate-600">|</span>
+            <span className="font-bold text-base">Bookmarklet</span>
           </div>
+          <a
+            href="/collecteur"
+            className="text-xs font-medium text-slate-400 hover:text-white px-3 py-1.5 rounded-lg hover:bg-white/5 transition-colors"
+          >
+            Collecteur →
+          </a>
         </div>
       </header>
 
-      <div className="max-w-3xl mx-auto px-4 py-10 space-y-8">
-        {/* Main CTA */}
-        <div className="bg-white rounded-2xl border border-gray-200 p-8 text-center shadow-sm space-y-5">
-          <div className="text-5xl">⭐</div>
-          <h2 className="text-xl font-bold text-gray-900">
-            Glissez ce lien dans votre barre de favoris
-          </h2>
-          <p className="text-gray-500 text-sm max-w-lg mx-auto">
-            Faites glisser le bouton ci-dessous vers votre barre de favoris Chrome. Ensuite, depuis
-            n&apos;importe quelle page programme SeLoger Neuf, cliquez dessus pour envoyer
-            automatiquement le programme dans votre collecteur.
-          </p>
+      <main className="max-w-3xl mx-auto px-4 py-10 space-y-6">
+        {/* CTA drag */}
+        <div className="bg-white border border-[#E5E7EB] rounded-2xl p-8 text-center shadow-sm space-y-5">
+          <div className="text-4xl">⭐</div>
+          <div>
+            <h1 className="text-xl font-bold text-[#111827] mb-2">
+              Glissez ce bouton dans votre barre de favoris
+            </h1>
+            <p className="text-sm text-[#6B7280] max-w-md mx-auto">
+              Depuis une page programme SeLoger Neuf, cliquez dessus pour envoyer automatiquement
+              les données dans votre collecteur.
+            </p>
+          </div>
 
           {!ready ? (
-            <div className="inline-flex items-center gap-2 px-6 py-3 bg-gray-100 rounded-xl text-gray-500 text-sm">
-              <div className="animate-spin h-4 w-4 border-2 border-gray-400 border-t-transparent rounded-full" />
+            <div className="flex items-center justify-center gap-2 text-sm text-[#6B7280]">
+              <div className="animate-spin h-4 w-4 border-2 border-[#2563EB] border-t-transparent rounded-full" />
               Chargement…
             </div>
           ) : href === "#" ? (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-sm text-red-700">
+            <div className="bg-[#FEF2F2] border border-red-200 rounded-lg p-4 text-sm text-red-700">
               Impossible de charger le bookmarklet. Rechargez la page.
             </div>
           ) : (
-            <div className="flex flex-col items-center gap-3">
-              {/* The drag-to-bookmark link */}
+            <div className="flex flex-col items-center gap-2">
               <a
                 href={href}
                 draggable
                 onClick={(e) => {
                   e.preventDefault();
                   alert(
-                    "Glissez ce bouton vers votre barre de favoris plutôt que de cliquer.\n\n" +
-                    "Si la barre n'est pas visible : Ctrl+Maj+B (Chrome)."
+                    "Glissez ce bouton vers votre barre de favoris.\n\n" +
+                    "Si elle n'est pas visible : Ctrl+Maj+B (Chrome / Edge)."
                   );
                 }}
-                className="inline-flex items-center gap-2 px-6 py-3 bg-blue-700 hover:bg-blue-800 text-white font-bold text-base rounded-xl shadow-md cursor-grab active:cursor-grabbing select-none transition-colors"
+                className="inline-flex items-center gap-2 px-6 py-3 bg-[#2563EB] hover:bg-[#1D4ED8] text-white font-bold text-sm rounded-xl shadow cursor-grab active:cursor-grabbing select-none transition-colors"
               >
-                <span>★</span>
-                <span>SeLoger Neuf → Collecteur</span>
+                ★ SeLoger Neuf → Collecteur
               </a>
-              <p className="text-xs text-gray-400">
-                Cliquez et maintenez · Faites glisser vers la barre de favoris
+              <p className="text-xs text-[#9CA3AF]">
+                Maintenez et glissez vers la barre de favoris Chrome
               </p>
             </div>
           )}
         </div>
 
-        {/* Instructions */}
-        <div className="bg-white rounded-2xl border border-gray-200 p-7 space-y-5 shadow-sm">
-          <h3 className="font-bold text-gray-900 text-base">Comment utiliser</h3>
-          <ol className="space-y-4 text-sm text-gray-700">
+        {/* Étapes */}
+        <div className="bg-white border border-[#E5E7EB] rounded-2xl p-7 shadow-sm">
+          <h2 className="font-bold text-[#111827] text-sm mb-5">Comment utiliser</h2>
+          <ol className="space-y-5">
             {[
               {
-                n: "1",
+                n: 1,
                 title: "Installez le bookmarklet",
-                desc: "Glissez le bouton ⭐ ci-dessus vers votre barre de favoris Chrome. Si elle n'est pas visible : Ctrl+Maj+B.",
+                desc: "Glissez le bouton ⭐ ci-dessus vers votre barre de favoris Chrome. Raccourci pour afficher la barre : Ctrl+Maj+B.",
               },
               {
-                n: "2",
+                n: 2,
                 title: "Ouvrez une page programme SeLoger Neuf",
                 desc: "Naviguez jusqu'à la page détail d'un programme sur selogerneuf.com.",
               },
               {
-                n: "3",
+                n: 3,
                 title: "Cliquez sur le bookmarklet",
-                desc: "Cliquez sur « SeLoger Neuf → Collecteur » dans vos favoris. Un overlay apparaît brièvement sur la page, puis un nouvel onglet s'ouvre pour confirmer l'import.",
+                desc: "Un overlay apparaît brièvement, puis un onglet s'ouvre pour confirmer l'import et redirige vers le collecteur.",
               },
               {
-                n: "4",
-                title: "Répétez pour chaque programme",
-                desc: "Ouvrez autant de pages que nécessaire et cliquez le bookmarklet sur chacune.",
+                n: 4,
+                title: "Répétez",
+                desc: "Cliquez le bookmarklet sur autant de pages que nécessaire.",
               },
               {
-                n: "5",
+                n: 5,
                 title: "Exportez l'Excel",
-                desc: "Rendez-vous dans le Collecteur pour voir tous vos programmes et télécharger l'analyse Excel.",
+                desc: "Dans le Collecteur, téléchargez l'analyse Excel de tous vos programmes.",
               },
             ].map((s) => (
               <li key={s.n} className="flex gap-4">
-                <span className="shrink-0 w-7 h-7 bg-blue-700 text-white rounded-full flex items-center justify-center text-xs font-bold">
+                <span className="shrink-0 w-7 h-7 bg-[#2563EB] text-white rounded-full flex items-center justify-center text-xs font-bold">
                   {s.n}
                 </span>
                 <div>
-                  <p className="font-semibold text-gray-900">{s.title}</p>
-                  <p className="text-gray-500 text-xs mt-0.5">{s.desc}</p>
+                  <p className="font-semibold text-sm text-[#111827]">{s.title}</p>
+                  <p className="text-xs text-[#6B7280] mt-0.5">{s.desc}</p>
                 </div>
               </li>
             ))}
           </ol>
         </div>
 
-        {/* Technical info */}
-        <div className="bg-gray-50 rounded-xl border border-gray-200 p-5 space-y-3">
-          <h3 className="font-semibold text-gray-700 text-sm">Informations techniques</h3>
-          <div className="space-y-2 text-xs text-gray-600">
-            <div className="flex items-start gap-2">
-              <span className="font-medium text-gray-700 shrink-0">URL de collecte :</span>
-              <div className="flex items-center gap-2 min-w-0">
-                <code className="bg-gray-100 px-2 py-0.5 rounded font-mono break-all">
-                  {collectUrl || "—"}
-                </code>
-                {collectUrl && (
-                  <button
-                    onClick={copyUrl}
-                    className="shrink-0 text-blue-600 hover:text-blue-800 font-medium"
-                  >
-                    {copied ? "✓" : "Copier"}
-                  </button>
-                )}
-              </div>
+        {/* Infos techniques */}
+        <div className="bg-[#F8FAFC] border border-[#E5E7EB] rounded-xl p-5 space-y-3">
+          <h2 className="font-semibold text-[#374151] text-sm">Informations techniques</h2>
+          <div className="space-y-2 text-xs text-[#6B7280]">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-medium text-[#374151]">URL de collecte :</span>
+              <code className="bg-white border border-[#E5E7EB] px-2 py-0.5 rounded font-mono text-[#374151] break-all">
+                {collectUrl || "—"}
+              </code>
+              {collectUrl && (
+                <button
+                  onClick={copyUrl}
+                  className="text-[#2563EB] hover:text-[#1D4ED8] font-medium shrink-0"
+                >
+                  {copied ? "✓ Copié" : "Copier"}
+                </button>
+              )}
             </div>
-            <p className="text-gray-500">
-              Le bookmarklet envoie les données via un formulaire POST vers cette URL. Les programmes
-              sont stockés dans le <code className="bg-gray-100 px-1 rounded font-mono">localStorage</code>{" "}
-              de votre navigateur — aucune base de données, aucune donnée envoyée à un tiers.
+            <p>
+              Données envoyées via formulaire POST et stockées dans le{" "}
+              <code className="bg-white border border-[#E5E7EB] px-1 rounded font-mono">
+                localStorage
+              </code>{" "}
+              du navigateur. Aucune base de données, aucun tiers.
             </p>
-            <p className="text-gray-500">
-              Compatible Chrome, Edge, Firefox. Fonctionne uniquement sur les pages
-              <code className="bg-gray-100 px-1 rounded font-mono">selogerneuf.com</code>.
+            <p>
+              Compatible Chrome, Edge, Firefox. Fonctionne uniquement sur{" "}
+              <code className="bg-white border border-[#E5E7EB] px-1 rounded font-mono">
+                selogerneuf.com
+              </code>
+              .
             </p>
           </div>
         </div>
 
-        {/* Backward compat note */}
-        <div className="bg-amber-50 border border-amber-200 rounded-xl p-5">
-          <h3 className="font-semibold text-amber-900 text-sm mb-2">
-            Ancien workflow toujours disponible
-          </h3>
+        {/* Compat note */}
+        <div className="bg-[#FFFBEB] border border-amber-200 rounded-xl px-5 py-4">
           <p className="text-xs text-amber-800">
-            L&apos;import manuel par copier-coller de JSON reste disponible dans la page d&apos;analyse
-            principale (bouton &laquo;&nbsp;Importer les lots&nbsp;&raquo; sur chaque programme). Le nouveau
-            bookmarklet est un complément, pas un remplacement.
+            <strong>Ancien workflow toujours disponible :</strong> L&apos;import manuel JSON reste
+            accessible via le bouton &laquo;&nbsp;Importer les lots&nbsp;&raquo; sur chaque
+            programme dans la page d&apos;analyse.
           </p>
         </div>
-      </div>
-    </main>
+      </main>
+    </div>
   );
 }

@@ -14,8 +14,11 @@ type ImportedLot = {
   surfaceM2?: number | null;
   priceEur?: number | null;
   pricePerM2?: number | null;
-  availableCount?: number | null;
-  debug?: unknown;
+  availableCount: number;
+  debug?: {
+    rawBlockText?: string;
+    parsingWarnings?: string[];
+  } & Record<string, unknown>;
 };
 
 type ImportedProgramData = {
@@ -27,12 +30,13 @@ type ImportedProgramData = {
   availableUnits?: number | null;
   bodyTextSample?: string;
   rawTypologyBlocks?: unknown[];
-  lots?: ImportedLot[];
+  lots: ImportedLot[];
   importedAt?: string;
   developer?: string;
   city?: string;
   address?: string;
 };
+
 
 const LS_KEY = "seloger_neuf_collected_programs";
 
@@ -48,8 +52,9 @@ function buildAnalysisResult(programs: ImportedProgramData[]): NeufAnalysisResul
     const city = prog.city?.trim() || "Import";
 
     const listings: NeufListing[] = (prog.lots ?? [])
-      .filter((lot): lot is ImportedLot & { typology: NonNullable<ImportedLot["typology"]> } =>
-        lot.typology != null
+      .filter(
+        (lot): lot is ImportedLot & { typology: NonNullable<ImportedLot["typology"]> } =>
+          lot.typology !== null
       )
       .map((lot, li) => {
         const pricePerM2 =
@@ -75,11 +80,7 @@ function buildAnalysisResult(programs: ImportedProgramData[]): NeufAnalysisResul
           availableCount: lot.availableCount ?? undefined,
           reliabilityScore: hasSurface && hasPrice ? 85 : 50,
           excludedFromStats: !hasSurface || !hasPrice,
-          exclusionReason: !hasSurface
-            ? "Surface manquante"
-            : !hasPrice
-            ? "Prix manquant"
-            : undefined,
+          exclusionReason: !hasSurface ? "Surface manquante" : !hasPrice ? "Prix manquant" : undefined,
         };
       });
 
@@ -100,13 +101,7 @@ function buildAnalysisResult(programs: ImportedProgramData[]): NeufAnalysisResul
 
   return {
     input: { address: "Import bookmarklet" },
-    geocodedAddress: {
-      label: "Import bookmarklet",
-      city: "Analyse",
-      postalCode: "",
-      lat: 0,
-      lng: 0,
-    },
+    geocodedAddress: { label: "Import bookmarklet", city: "Analyse", postalCode: "", lat: 0, lng: 0 },
     programs: neufPrograms,
     listings: neufPrograms.flatMap((p) => p.listings),
     warnings: [],
@@ -141,15 +136,18 @@ export default function CollecteurPage() {
     save(programs.filter((_, i) => i !== idx));
   }
 
-  function clear() {
-    if (confirm(`Supprimer les ${programs.length} programme(s) du collecteur ?`)) {
+  function clearAll() {
+    if (
+      confirm(
+        `Supprimer les ${programs.length} programme(s) collecté(s) ?\n\nCette action est irréversible. À faire avant de commencer une nouvelle analyse.`
+      )
+    ) {
       save([]);
     }
   }
 
   function copyJson() {
-    const json = JSON.stringify(programs, null, 2);
-    navigator.clipboard.writeText(json).catch(() => {});
+    navigator.clipboard.writeText(JSON.stringify(programs, null, 2)).catch(() => {});
   }
 
   async function exportExcel() {
@@ -186,142 +184,189 @@ export default function CollecteurPage() {
 
   if (!ready) {
     return (
-      <main className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-700" />
-      </main>
+      <div className="min-h-screen bg-[#F7F8FA] flex items-center justify-center">
+        <div className="animate-spin rounded-full h-10 w-10 border-2 border-[#2563EB] border-t-transparent" />
+      </div>
     );
   }
 
   return (
-    <main className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-[#F7F8FA]">
       {/* Header */}
-      <header className="bg-blue-900 text-white shadow-lg">
-        <div className="max-w-5xl mx-auto px-4 py-5 flex items-center justify-between gap-4">
+      <header className="bg-[#0F172A] text-white sticky top-0 z-40 shadow-sm">
+        <div className="max-w-5xl mx-auto px-4 py-3.5 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="bg-blue-700 rounded-lg p-2">
-              <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                  d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8l1 12a2 2 0 002 2h8a2 2 0 002-2L19 8" />
-              </svg>
-            </div>
-            <div>
-              <h1 className="text-xl font-bold tracking-tight">Collecteur de programmes</h1>
-              <p className="text-blue-300 text-xs">Programmes importés via bookmarklet</p>
-            </div>
+            <a href="/" className="text-slate-400 hover:text-white text-sm transition-colors">
+              ← Accueil
+            </a>
+            <span className="text-slate-600">|</span>
+            <span className="font-bold text-base">Collecteur</span>
+            {programs.length > 0 && (
+              <span className="bg-[#2563EB] text-white text-[11px] font-bold px-2 py-0.5 rounded-full">
+                {programs.length}
+              </span>
+            )}
           </div>
-          <a href="/" className="text-blue-200 hover:text-white text-sm underline">
-            ← Retour à l&apos;analyse
+          <a
+            href="/bookmarklet"
+            className="text-xs font-medium text-slate-400 hover:text-white px-3 py-1.5 rounded-lg hover:bg-white/5 transition-colors"
+          >
+            ★ Bookmarklet
           </a>
         </div>
       </header>
 
-      <div className="max-w-5xl mx-auto px-4 py-8 space-y-6">
+      <main className="max-w-5xl mx-auto px-4 py-8 space-y-6">
         {/* Actions bar */}
         <div className="flex flex-wrap items-center gap-3">
-          <span className="text-gray-700 font-semibold text-sm">
-            {programs.length === 0
-              ? "Aucun programme importé"
-              : `${programs.length} programme(s) importé(s)`}
-          </span>
+          <div>
+            <h1 className="text-xl font-bold text-[#111827]">Programmes collectés</h1>
+            <p className="text-sm text-[#6B7280] mt-0.5">
+              {programs.length === 0
+                ? "Aucun programme dans le collecteur"
+                : `${programs.length} programme${programs.length > 1 ? "s" : ""} importé${programs.length > 1 ? "s" : ""} via bookmarklet`}
+            </p>
+          </div>
+
           <div className="ml-auto flex flex-wrap gap-2">
-            <a
-              href="/bookmarklet"
-              className="px-3 py-1.5 text-xs font-medium border border-blue-300 text-blue-700 rounded-lg hover:bg-blue-50 transition-colors"
-            >
-              ★ Obtenir le bookmarklet
-            </a>
             {programs.length > 0 && (
               <>
+                {/* Vider — bouton bien visible */}
+                <button
+                  onClick={clearAll}
+                  className="flex items-center gap-1.5 px-4 py-2 text-sm font-semibold border-2 border-red-200 text-red-600 rounded-xl hover:bg-red-50 hover:border-red-400 transition-colors"
+                >
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                  Vider le collecteur
+                </button>
+
                 <button
                   onClick={copyJson}
-                  className="px-3 py-1.5 text-xs font-medium border border-gray-300 text-gray-600 rounded-lg hover:bg-gray-50 transition-colors"
+                  className="px-3 py-2 text-xs font-medium border border-[#E5E7EB] text-[#6B7280] rounded-xl hover:bg-white hover:text-[#111827] transition-colors"
                 >
                   Copier JSON
                 </button>
-                <button
-                  onClick={clear}
-                  className="px-3 py-1.5 text-xs font-medium border border-red-200 text-red-600 rounded-lg hover:bg-red-50 transition-colors"
-                >
-                  Nouvelle analyse / vider
-                </button>
+
                 <button
                   onClick={exportExcel}
                   disabled={exporting}
-                  className="px-4 py-1.5 text-xs font-semibold bg-blue-700 hover:bg-blue-800 disabled:bg-gray-400 text-white rounded-lg transition-colors"
+                  className="flex items-center gap-2 px-4 py-2 text-sm font-semibold bg-[#2563EB] hover:bg-[#1D4ED8] disabled:bg-[#9CA3AF] text-white rounded-xl transition-colors"
                 >
-                  {exporting ? "Export…" : "↓ Exporter Excel"}
+                  {exporting ? (
+                    <>
+                      <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                      </svg>
+                      Export…
+                    </>
+                  ) : (
+                    <>
+                      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                          d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                      </svg>
+                      Exporter Excel
+                    </>
+                  )}
                 </button>
               </>
             )}
           </div>
         </div>
 
+        {/* Note "Vider avant nouvelle analyse" */}
+        {programs.length > 0 && (
+          <div className="bg-[#FFFBEB] border border-amber-200 rounded-xl px-4 py-3 text-xs text-amber-800 flex items-start gap-2">
+            <span className="text-amber-500 shrink-0 mt-0.5">ℹ</span>
+            <span>
+              <strong>Nouvelle série d&apos;actifs ?</strong> Cliquez sur{" "}
+              <strong>Vider le collecteur</strong> avant de commencer pour repartir d&apos;une liste
+              vierge.
+            </span>
+          </div>
+        )}
+
+        {/* Export error */}
         {exportError && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700">
+          <div className="bg-[#FEF2F2] border border-red-200 rounded-xl p-4 text-sm text-red-800">
             <strong>Erreur export :</strong> {exportError}
           </div>
         )}
 
         {/* Empty state */}
         {programs.length === 0 && (
-          <div className="bg-white rounded-xl border border-gray-200 p-12 text-center space-y-4">
+          <div className="bg-white border border-[#E5E7EB] rounded-2xl p-12 text-center space-y-4">
             <div className="text-5xl">📭</div>
-            <h2 className="text-lg font-semibold text-gray-700">Aucun programme collecté</h2>
-            <p className="text-gray-500 text-sm max-w-sm mx-auto">
+            <h2 className="text-lg font-semibold text-[#111827]">Collecteur vide</h2>
+            <p className="text-sm text-[#6B7280] max-w-sm mx-auto">
               Installez le bookmarklet et cliquez dessus sur une page programme SeLoger Neuf pour
               l&apos;ajouter automatiquement ici.
             </p>
             <a
               href="/bookmarklet"
-              className="inline-block mt-2 px-5 py-2 bg-blue-700 text-white text-sm font-semibold rounded-lg hover:bg-blue-800 transition-colors"
+              className="inline-block mt-2 px-5 py-2.5 bg-[#2563EB] text-white text-sm font-semibold rounded-xl hover:bg-[#1D4ED8] transition-colors"
             >
-              ★ Obtenir le bookmarklet
+              ★ Installer le bookmarklet
             </a>
           </div>
         )}
 
-        {/* Programs list */}
+        {/* Liste des programmes */}
         {programs.length > 0 && (
           <div className="space-y-3">
             {programs.map((prog, idx) => {
               const validLots = prog.lots?.filter((l) => l.typology !== null) ?? [];
+              const sourceUrl =
+                prog.sourceUrl ||
+                ((prog as Record<string, unknown>).pageUrl as string) ||
+                "";
               const importedDate = prog.importedAt
                 ? new Date(prog.importedAt).toLocaleString("fr-FR", {
-                    day: "2-digit", month: "2-digit", year: "numeric",
-                    hour: "2-digit", minute: "2-digit",
+                    day: "2-digit",
+                    month: "2-digit",
+                    year: "numeric",
+                    hour: "2-digit",
+                    minute: "2-digit",
                   })
                 : "—";
-              const sourceUrl = prog.sourceUrl || (prog as Record<string, unknown>).pageUrl as string || "";
+
+              // Avg price/m² from lots
+              const pm2vals = validLots.flatMap((l) => {
+                if (!l.surfaceM2 || !l.priceEur) return [];
+                const p = l.pricePerM2 ?? Math.round(l.priceEur / l.surfaceM2);
+                return Array<number>(l.availableCount).fill(p);
+              });
+              const avgPm2 =
+                pm2vals.length > 0
+                  ? Math.round(pm2vals.reduce((a, b) => a + b, 0) / pm2vals.length)
+                  : null;
 
               return (
                 <div
                   key={idx}
-                  className="bg-white rounded-xl border border-gray-200 p-5 hover:border-blue-200 transition-colors"
+                  className="bg-white border border-[#E5E7EB] rounded-2xl p-5 hover:border-[#BFDBFE] transition-colors"
                 >
                   <div className="flex items-start justify-between gap-4">
                     <div className="min-w-0 flex-1">
+                      {/* Titre */}
                       <div className="flex items-center gap-2 flex-wrap mb-1">
-                        <h3 className="font-semibold text-gray-900 text-sm truncate">
-                          {prog.programName}
-                        </h3>
+                        <h3 className="font-bold text-[#111827] text-sm">{prog.programName}</h3>
                         {prog.bookmarkletVersion && (
-                          <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded font-mono">
+                          <span className="text-[10px] bg-[#F1F5F9] text-[#6B7280] px-1.5 py-0.5 rounded font-mono">
                             {prog.bookmarkletVersion}
                           </span>
                         )}
                       </div>
 
-                      <div className="flex flex-wrap gap-4 text-xs text-gray-500 mb-3">
-                        <span>
-                          <span className="font-medium text-gray-700">{prog.lots?.length ?? 0}</span>{" "}
-                          lot(s) brut ·{" "}
-                          <span className="font-medium text-gray-700">{validLots.length}</span>{" "}
-                          typologie(s) reconnue(s)
-                        </span>
+                      {/* Meta */}
+                      <div className="flex flex-wrap gap-3 text-xs text-[#6B7280] mb-3">
                         {prog.totalUnits != null && (
                           <span>
-                            Total :{" "}
-                            <span className="font-medium text-gray-700">
+                            <span className="font-semibold text-[#111827]">
                               {fmt(prog.totalUnits)}
                             </span>{" "}
                             logements
@@ -329,30 +374,38 @@ export default function CollecteurPage() {
                         )}
                         {prog.availableUnits != null && (
                           <span>
-                            Dispo :{" "}
-                            <span className="font-medium text-gray-700">
+                            <span className="font-semibold text-[#111827]">
                               {fmt(prog.availableUnits)}
+                            </span>{" "}
+                            disponibles
+                          </span>
+                        )}
+                        {avgPm2 != null && (
+                          <span>
+                            Moy.{" "}
+                            <span className="font-semibold text-[#111827]">
+                              {fmt(avgPm2)} €/m²
                             </span>
                           </span>
                         )}
                         <span>Importé le {importedDate}</span>
                       </div>
 
-                      {/* Lots summary */}
+                      {/* Lots / typologies */}
                       {validLots.length > 0 && (
-                        <div className="flex flex-wrap gap-1.5">
+                        <div className="flex flex-wrap gap-1.5 mb-3">
                           {validLots.map((lot, li) => (
                             <span
                               key={li}
-                              className="inline-flex items-center gap-1 bg-blue-50 text-blue-800 text-[11px] px-2 py-0.5 rounded-full"
+                              className="inline-flex items-center gap-1 bg-[#EFF6FF] text-[#2563EB] text-[11px] font-medium px-2 py-0.5 rounded-full"
                             >
-                              <span className="font-semibold">{lot.typology}</span>
+                              <span>{lot.typology}</span>
                               {lot.surfaceM2 != null && <span>{lot.surfaceM2} m²</span>}
                               {lot.pricePerM2 != null && (
                                 <span>{fmt(lot.pricePerM2)} €/m²</span>
                               )}
-                              {(lot.availableCount ?? 0) > 0 && (
-                                <span className="text-blue-500">×{lot.availableCount}</span>
+                              {lot.availableCount > 0 && (
+                                <span className="text-[#93C5FD]">×{lot.availableCount}</span>
                               )}
                             </span>
                           ))}
@@ -364,16 +417,17 @@ export default function CollecteurPage() {
                           href={sourceUrl}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="inline-block mt-2 text-[11px] text-blue-600 hover:underline truncate max-w-full"
+                          className="text-[11px] text-[#2563EB] hover:underline truncate max-w-full block"
                         >
                           {sourceUrl}
                         </a>
                       )}
                     </div>
 
+                    {/* Supprimer */}
                     <button
                       onClick={() => remove(idx)}
-                      className="shrink-0 text-gray-300 hover:text-red-500 transition-colors text-xl leading-none mt-0.5"
+                      className="shrink-0 text-[#D1D5DB] hover:text-red-500 transition-colors text-2xl leading-none mt-0.5"
                       title="Supprimer ce programme"
                     >
                       ×
@@ -385,13 +439,13 @@ export default function CollecteurPage() {
           </div>
         )}
 
+        {/* Footer note */}
         {programs.length > 0 && (
-          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800">
-            <strong>⚠️ Rappel :</strong> source exclusive SeLoger Neuf. Prix de commercialisation
-            affichés, non vérifiés, à confirmer avant toute utilisation.
-          </div>
+          <p className="text-xs text-[#9CA3AF] text-center">
+            Source exclusive SeLoger Neuf · Prix de commercialisation, non vérifiés
+          </p>
         )}
-      </div>
-    </main>
+      </main>
+    </div>
   );
 }

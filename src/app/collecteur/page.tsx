@@ -72,7 +72,7 @@ function buildAnalysisResult(programs: ImportedProgramData[]): NeufAnalysisResul
           surfaceM2: lot.surfaceM2 ?? undefined,
           priceEur: lot.priceEur ?? undefined,
           pricePerM2,
-          availableCount: lot.availableCount,
+          availableCount: lot.availableCount ?? undefined,
           reliabilityScore: hasSurface && hasPrice ? 85 : 50,
           excludedFromStats: !hasSurface || !hasPrice,
           exclusionReason: !hasSurface

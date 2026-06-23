@@ -13,8 +13,8 @@ export default function BookmarkletPage() {
     const url = origin + "/api/neuf/collect";
     setCollectUrl(url);
 
-    const loader = `javascript:(()=>{const s=document.createElement("script");s.src="${origin}/api/neuf/bookmarklet?v="+Date.now();document.body.appendChild(s);})();`;
-    setHref(loader);
+    const bookmarklet = `javascript:(()=>{const s=document.createElement("script");s.src="${origin}/api/neuf/bookmarklet?v="+Date.now();document.body.appendChild(s);})();`;
+    setHref(bookmarklet);
     setReady(true);
   }, []);
 
@@ -111,7 +111,7 @@ export default function BookmarkletPage() {
               {
                 n: 3,
                 title: "Cliquez sur le bookmarklet",
-                desc: "Un overlay apparaît brièvement, puis un onglet s'ouvre pour confirmer l'import et redirige vers le collecteur.",
+                desc: "Un overlay apparaît, puis le programme est ajouté au volet Collecteur de la page principale.",
               },
               {
                 n: 4,
@@ -121,7 +121,7 @@ export default function BookmarkletPage() {
               {
                 n: 5,
                 title: "Exportez l'Excel",
-                desc: "Dans le Collecteur, téléchargez l'analyse Excel de tous vos programmes.",
+                desc: "Retournez sur la page d'accueil : le volet de gauche affiche les programmes collectés et permet l'export Excel.",
               },
             ].map((s) => (
               <li key={s.n} className="flex gap-4">
@@ -172,14 +172,6 @@ export default function BookmarkletPage() {
           </div>
         </div>
 
-        {/* Compat note */}
-        <div className="bg-[#FFFBEB] border border-amber-200 rounded-xl px-5 py-4">
-          <p className="text-xs text-amber-800">
-            <strong>Ancien workflow toujours disponible :</strong> L&apos;import manuel JSON reste
-            accessible via le bouton &laquo;&nbsp;Importer les lots&nbsp;&raquo; sur chaque
-            programme dans la page d&apos;analyse.
-          </p>
-        </div>
       </main>
     </div>
   );

@@ -242,7 +242,7 @@ export default function CollecteurPage() {
                   onClick={clear}
                   className="px-3 py-1.5 text-xs font-medium border border-red-200 text-red-600 rounded-lg hover:bg-red-50 transition-colors"
                 >
-                  Tout supprimer
+                  Nouvelle analyse / vider
                 </button>
                 <button
                   onClick={exportExcel}

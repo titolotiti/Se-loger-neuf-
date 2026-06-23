@@ -708,13 +708,6 @@ export async function exportToExcel(result: NeufAnalysisResult): Promise<Buffer>
   return Buffer.from(buf);
 }
 
-const TYPOLOGIES: NeufTypology[] = ["T1 / Studio", "T2", "T3", "T4", "T5+"];
-const TYPO_LETTER: Record<NeufTypology, string> = {
-  "T1 / Studio": "a", "T2": "b", "T3": "c", "T4": "d", "T5+": "e",
-};
-const TYPO_LABEL: Record<NeufTypology, string> = {
-  "T1 / Studio": "T1", "T2": "T2", "T3": "T3", "T4": "T4", "T5+": "T5+",
-};
 
 // ── Couleurs ──────────────────────────────────────────────────────────────────
 const C_NAV = "1F3864"; // bleu foncé  : titres principaux

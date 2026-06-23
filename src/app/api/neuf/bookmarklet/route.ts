@@ -14,9 +14,12 @@ const BOOKMARKLET_JS = String.raw`/**
   var COLLECT_URL = '__COLLECT_URL__';
   var BOOKMARKLET_VERSION = 'v4-auto-collect';
 
-  if (!window.location.href.includes('selogerneuf.com')) {
-    alert('[' + BOOKMARKLET_VERSION + '] Exécuter sur une page SeLoger Neuf.\n' + window.location.href);
-    return;
+  if (
+  !window.location.href.includes('selogerneuf.com') &&
+  !window.location.href.includes('seloger.com')
+  ) {
+  alert('[' + BOOKMARKLET_VERSION + '] Exécuter sur une page SeLoger / SeLoger Neuf.\n' + window.location.href);
+  return;
   }
 
   // ════════════════════════════════════════════════════════════════

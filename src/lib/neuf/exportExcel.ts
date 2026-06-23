@@ -1,7 +1,7 @@
 import ExcelJS from "exceljs";
 import type { NeufAnalysisResult, NeufProgram, NeufListing, NeufTypology } from "@/types/neuf";
 
-// ── Typologies ────────────────────────────────────────────────────────────────import ExcelJS from "exceljs";
+// ── Typologies ────────────────────────────────────────────────────────────────
 import type { NeufAnalysisResult, NeufProgram, NeufListing, NeufTypology } from "@/types/neuf";
 
 // ── Typologies ────────────────────────────────────────────────────────────────

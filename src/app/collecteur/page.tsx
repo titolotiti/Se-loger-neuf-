@@ -402,7 +402,7 @@ export default function CollecteurPage() {
                               {lot.pricePerM2 != null && (
                                 <span>{fmt(lot.pricePerM2)} €/m²</span>
                               )}
-                              {lot.availableCount > 0 && (
+                              {(lot.availableCount ?? 0) > 0 && (
                                 <span className="text-[#93C5FD]">×{lot.availableCount}</span>
                               )}
                             </span>

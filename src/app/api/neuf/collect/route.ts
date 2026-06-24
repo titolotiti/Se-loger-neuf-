@@ -28,11 +28,18 @@ export async function POST(req: NextRequest) {
     return htmlRes(errorPage("JSON invalide."), 400);
   }
 
-  if (typeof program.programName !== "string" || !Array.isArray(program.lots)) {
-    return htmlRes(errorPage("Format invalide (programName ou lots manquants)."), 400);
+  if (typeof program.programName !== "string" || !program.programName.trim()) {
+    program.programName = typeof program.sourceUrl === "string" && program.sourceUrl
+      ? program.sourceUrl
+      : "Programme SeLoger Neuf";
+  }
+
+  if (!Array.isArray(program.lots)) {
+    program.lots = [];
   }
 
   if (!program.sourceUrl) program.sourceUrl = program.pageUrl ?? "";
+  if (!program.pageUrl) program.pageUrl = program.sourceUrl ?? "";
   program.importedAt = new Date().toISOString();
 
   const safeJson = JSON.stringify(program)
@@ -92,7 +99,7 @@ p{color:#6b7280;font-size:13px;margin-bottom:20px;line-height:1.5}
     document.getElementById("ico").textContent="✅";
     document.getElementById("ttl").textContent="Programme ajouté !";
     document.getElementById("msg").textContent=
-      "« "+prog.programName+" » est dans le collecteur.";
+      "« "+prog.programName+" » est dans le collecteur" + ((prog.lots||[]).length ? " avec "+prog.lots.length+" lot(s)." : " — aucun lot détecté.");
   }catch(e){
     document.getElementById("ico").textContent="❌";
     document.getElementById("ttl").textContent="Erreur";

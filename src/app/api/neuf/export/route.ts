@@ -1,37 +1,69 @@
-import { NextRequest, NextResponse } from 'next/server';
-import type { NeufAnalysisResult } from '@/types/neuf';
-import { exportToExcel } from '@/lib/neuf/exportExcel';
+import { NextRequest, NextResponse } from "next/server";
+import { exportToExcel, exportCollectedToExcel } from "@/lib/neuf/exportExcel";
+import type { NeufAnalysisResult } from "@/types/neuf";
 
-export async function POST(req: NextRequest) {
+export async function POST(req: NextRequest): Promise<NextResponse> {
+  let body: unknown;
   try {
-    const body: NeufAnalysisResult = await req.json();
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Corps de requête invalide (JSON attendu)" }, { status: 400 });
+  }
 
-    if (!body.programs || !Array.isArray(body.programs) || body.programs.length === 0) {
+  try {
+    // ── Format 1 : ExportCollectedPayload { label, programs: CollectedProgram[] }
+    if (
+      body &&
+      typeof body === "object" &&
+      "label" in (body as object) &&
+      Array.isArray((body as { programs?: unknown }).programs)
+    ) {
+      const payload = body as { label: string; programs: unknown[] };
+      if (!payload.programs.length) {
+        return NextResponse.json({ error: "Aucun programme à exporter" }, { status: 422 });
+      }
+      const buffer = await exportCollectedToExcel(payload as any);
+      const date = new Date().toISOString().slice(0, 10);
+      const filename = `seloger_neuf_collecte_${date}.xlsx`;
+      return new NextResponse(buffer as unknown as BodyInit, {
+        status: 200,
+        headers: {
+          "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          "Content-Disposition": `attachment; filename="${filename}"`,
+          "Content-Length": buffer.length.toString(),
+        },
+      });
+    }
+
+    // ── Format 2 : NeufAnalysisResult { geocodedAddress, programs, ... }
+    const result = body as NeufAnalysisResult;
+    if (!result?.geocodedAddress || !result?.programs) {
       return NextResponse.json(
-        { error: 'Aucun programme à exporter.' },
-        { status: 400 }
+        { error: "Données d'analyse manquantes ou invalides" },
+        { status: 422 }
       );
     }
 
-    const buffer = await exportToExcel(body);
-
-    const city = (body.geocodedAddress?.city ?? 'offre-neuve')
+    const buffer = await exportToExcel(result);
+    const city = result.geocodedAddress.city
       .toLowerCase()
-      .replace(/[^a-z0-9]/g, '_');
+      .replace(/[^a-z0-9]/g, "_")
+      .replace(/_+/g, "_");
     const date = new Date().toISOString().slice(0, 10);
     const filename = `seloger_neuf_${city}_${date}.xlsx`;
 
-    return new NextResponse(new Uint8Array(buffer), {
+    return new NextResponse(buffer as unknown as BodyInit, {
       status: 200,
       headers: {
-        'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        'Content-Disposition': `attachment; filename="${filename}"`,
+        "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "Content-Disposition": `attachment; filename="${filename}"`,
+        "Content-Length": buffer.length.toString(),
       },
     });
   } catch (err) {
-    console.error('[export/neuf] Erreur génération Excel :', err);
+    console.error("[export] Erreur génération Excel:", err);
     return NextResponse.json(
-      { error: 'Erreur lors de la génération du fichier Excel.' },
+      { error: "Erreur lors de la génération du fichier Excel" },
       { status: 500 }
     );
   }

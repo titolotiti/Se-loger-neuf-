@@ -14,12 +14,9 @@ const BOOKMARKLET_JS = String.raw`/**
   var COLLECT_URL = '__COLLECT_URL__';
   var BOOKMARKLET_VERSION = 'v4-auto-collect';
 
-  if (
-  !window.location.href.includes('selogerneuf.com') &&
-  !window.location.href.includes('seloger.com')
-  ) {
-  alert('[' + BOOKMARKLET_VERSION + '] Exécuter sur une page SeLoger / SeLoger Neuf.\n' + window.location.href);
-  return;
+  if (!window.location.href.includes('selogerneuf.com') && !window.location.href.includes('seloger.com')) {
+    alert('[' + BOOKMARKLET_VERSION + '] Exécuter sur une page SeLoger / SeLoger Neuf.\n' + window.location.href);
+    return;
   }
 
   // ════════════════════════════════════════════════════════════════
@@ -337,6 +334,22 @@ const BOOKMARKLET_JS = String.raw`/**
     result.bodyTextSample = secFb.startIdx >= 0
       ? bt.slice(Math.max(0, secFb.startIdx - 30), secFb.startIdx + 1500)
       : bt.slice(0, 1500);
+  }
+
+  if (!Array.isArray(result.lots)) {
+    result.lots = [];
+  }
+
+  if (!result.sourceUrl) {
+    result.sourceUrl = window.location.href;
+  }
+  if (!result.pageUrl) {
+    result.pageUrl = window.location.href;
+  }
+  result.importedAt = new Date().toISOString();
+
+  if (!result.programName || result.programName === '(inconnu)' || /^detail$/i.test(result.programName)) {
+    result.programName = normalizeText(document.title || '').split(/\s*[|\-–]\s*/)[0] || window.location.href;
   }
 
   if (!result.availableUnits) {

@@ -183,7 +183,7 @@ function SidebarProgramCard({
       </div>
 
       {/* Typologies */}
-      {validLots.length > 0 && (
+      {validLots.length > 0 ? (
         <div className="flex flex-wrap gap-1 mb-2">
           {validLots.map((lot, i) => (
             <span
@@ -195,6 +195,15 @@ function SidebarProgramCard({
               {lot.pricePerM2 != null && ` · ${fmt(lot.pricePerM2)}€/m²`}
             </span>
           ))}
+        </div>
+      ) : (
+        <div className="mb-2 rounded-lg bg-[#FFF7ED] border border-[#FED7AA] px-2 py-1.5">
+          <p className="text-[10px] font-medium text-[#C2410C]">
+            Programme ajouté — lots non détectés
+          </p>
+          <p className="text-[10px] text-[#9A3412] mt-0.5">
+            Ouvre le lien SeLoger et vérifie que la page détail affiche bien les lots.
+          </p>
         </div>
       )}
 

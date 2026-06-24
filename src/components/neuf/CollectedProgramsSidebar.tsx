@@ -1,12 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import type {
-  NeufListing,
-  NeufProgram,
-  NeufAnalysisResult,
-  NeufTypology,
-} from "@/types/neuf";
+import type { NeufTypology } from "@/types/neuf";
 
 type ImportedLot = {
   typology: NeufTypology | null;
@@ -45,78 +40,65 @@ function fmt(n: number | null | undefined): string {
   return n.toLocaleString("fr-FR");
 }
 
-function buildAnalysisResult(programs: ImportedProgramData[]): NeufAnalysisResult {
-  const neufPrograms: NeufProgram[] = programs.map((prog, idx) => {
-    const programId = `collected-${idx}`;
-    const sourceUrl = prog.sourceUrl || prog.pageUrl || "";
-    const city = prog.city?.trim() || "Import";
+type ExportCollectedProgram = {
+  id: string;
+  programName: string;
+  promoter?: string;
+  address?: string;
+  city: string;
+  postalCode?: string;
+  url: string;
+  deliveryDate?: string;
+  totalUnits?: number | null;
+  availableUnits?: number | null;
+  lots: {
+    typology: NeufTypology | null;
+    rawTypology?: string;
+    surfaceM2?: number | null;
+    priceEur?: number | null;
+    pricePerM2?: number | null;
+    availableCount?: number | null;
+  }[];
+  collectedAt: string;
+  bookmarkletVersion?: string;
+  bodyTextSample?: string;
+};
 
-    const listings: NeufListing[] = (prog.lots ?? [])
-      .filter(
-        (lot): lot is ImportedLot & { typology: NonNullable<ImportedLot["typology"]> } =>
-          lot.typology != null
-      )
-      .map((lot, li) => {
-        const pricePerM2 =
-          lot.pricePerM2 ??
-          (lot.priceEur && lot.surfaceM2
-            ? Math.round(lot.priceEur / lot.surfaceM2)
-            : undefined);
-        const hasSurface = (lot.surfaceM2 ?? 0) > 0;
-        const hasPrice = (lot.priceEur ?? 0) > 0;
-        return {
-          id: `${programId}-${li}`,
-          programId,
-          source: "SeLogerNeuf" as const,
-          url: sourceUrl,
-          extractedAt: prog.importedAt ?? new Date().toISOString(),
-          programName: prog.programName,
-          city,
-          geoPrecision: "unknown" as const,
-          typology: lot.typology,
-          surfaceM2: lot.surfaceM2 ?? undefined,
-          priceEur: lot.priceEur ?? undefined,
-          pricePerM2,
-          availableCount: lot.availableCount ?? undefined,
-          reliabilityScore: hasSurface && hasPrice ? 85 : 50,
-          excludedFromStats: !hasSurface || !hasPrice,
-          exclusionReason: !hasSurface
-            ? "Surface manquante"
-            : !hasPrice
-            ? "Prix manquant"
-            : undefined,
-        };
-      });
+type ExportCollectedPayload = {
+  label: string;
+  programs: ExportCollectedProgram[];
+};
 
-    return {
-      programId,
-      source: "SeLogerNeuf" as const,
-      programName: prog.programName,
-      city,
-      address: prog.address || undefined,
-      developer: prog.developer || undefined,
-      zoneType: "Commune principale" as const,
-      url: sourceUrl,
-      totalUnits: prog.totalUnits ?? undefined,
-      availableUnits: prog.availableUnits ?? undefined,
-      listings,
-    };
-  });
-
+function normalizeForCollectedExport(programs: ImportedProgramData[]): ExportCollectedPayload {
   return {
-    input: { address: "Import bookmarklet" },
-    geocodedAddress: {
-      label: "Import bookmarklet",
-      city: "Analyse",
-      postalCode: "",
-      lat: 0,
-      lng: 0,
-    },
-    programs: neufPrograms,
-    listings: neufPrograms.flatMap((p) => p.listings),
-    warnings: [],
-    hasData: neufPrograms.length > 0,
-    extractedAt: new Date().toISOString(),
+    label: `Collecte SeLoger Neuf — ${new Date().toLocaleDateString("fr-FR")}`,
+    programs: programs.map((prog, idx) => {
+      const url = prog.sourceUrl || prog.pageUrl || "";
+      const city = prog.city?.trim() || "";
+      return {
+        id: `collected-${idx}`,
+        programName: prog.programName || "Programme SeLoger Neuf",
+        promoter: prog.developer,
+        address: prog.address && /[a-zA-ZÀ-ÿ]/.test(prog.address) ? prog.address : undefined,
+        city,
+        url,
+        totalUnits: prog.totalUnits ?? null,
+        availableUnits: prog.availableUnits ?? null,
+        lots: (prog.lots ?? []).map((lot) => ({
+          typology: lot.typology,
+          rawTypology: lot.rawTypology,
+          surfaceM2: lot.surfaceM2 ?? null,
+          priceEur: lot.priceEur ?? null,
+          pricePerM2:
+            lot.pricePerM2 ??
+            (lot.priceEur && lot.surfaceM2 ? Math.round(lot.priceEur / lot.surfaceM2) : null),
+          availableCount: lot.availableCount ?? 1,
+        })),
+        collectedAt: prog.importedAt ?? new Date().toISOString(),
+        bookmarkletVersion: prog.bookmarkletVersion,
+        bodyTextSample: prog.bodyTextSample,
+      };
+    }),
   };
 }
 
@@ -285,11 +267,11 @@ export default function CollectedProgramsSidebar() {
     setExporting(true);
     setExportError(null);
     try {
-      const result = buildAnalysisResult(programs);
+      const payload = normalizeForCollectedExport(programs);
       const res = await fetch("/api/neuf/export", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(result),
+        body: JSON.stringify(payload),
       });
       if (!res.ok) {
         const d = await res.json().catch(() => ({}));
